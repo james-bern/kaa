@@ -6,6 +6,6 @@
 *.ilk
 *.swp
 .vs/*
-*.lib
 run.bat
 main.obj
+main.lib
