@@ -1,0 +1,11 @@
+*.DS_Store
+*.dSYM
+*.exe
+*.pdb
+*.exp
+*.ilk
+*.swp
+.vs/*
+*.lib
+run.bat
+main.obj
