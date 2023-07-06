@@ -1,3 +1,6 @@
+// GPU picking
+// TODO: see if you can run cow while running an app in VR
+
 // TODO figure out how bones should be set up
 // TODO: zbrush dragon skin
 // TODO: convenient way of scaling meshes on import
