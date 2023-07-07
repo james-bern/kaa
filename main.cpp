@@ -647,7 +647,7 @@ void kaa() {
                         body.bone_indices = (int4 *) malloc(body.num_vertices * sizeof(int4));
                         body.bone_weights = (vec4 *) malloc(body.num_vertices * sizeof(vec4));
 
-                        // TODO: assign weights
+                        // assign weights FORNOW hacky nonsense
                         for_(vertex_i, body.num_vertices) {
                             auto f = [&](int i) {
                                 real c = AVG(boneOriginsRest[i].y, boneOriginsRest[i + 1].y);
