@@ -1,8 +1,7 @@
-// GPU picking
-
+// TODO: GPU picking
+// TODO: make line and spheres show up through the transparent mesh as well
 // TODO: see if you can run cow while running an app in VR
 // TODO: floor
-// TODO: make line and spheres show up through the transparent mesh as well
 // TODO: revisit the hessian (kim-style SparseMatrix parallel add?)
 // TODO: talking to motors
 // TODO: linear blend skinning in a vertex shader
