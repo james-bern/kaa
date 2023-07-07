@@ -672,9 +672,9 @@ void kaa() {
                         vec3 x = bonePositiveXAxis[bone_i];
                         vec3 z = cross(x, y);
                         mat4 invBind = M4_Translation(-boneOriginsRest[bone_i]);
-                        mat4 B = M4_xyzo(x, y, z, boneOrigins[bone_i]);
-                        body.bones[bone_i] = B * invBind;
-                        library.soups.axes.draw(PV * B * M4_Scaling(0.08));
+                        mat4 Bone = M4_xyzo(x, y, z, boneOrigins[bone_i]);
+                        body.bones[bone_i] = Bone * invBind;
+                        library.soups.axes.draw(PV * Bone * M4_Scaling(0.08));
                     }
                     body.draw(P, V, globals.Identity);
                 }

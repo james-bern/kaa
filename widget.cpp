@@ -23,7 +23,7 @@ struct WidgetResult {
     bool recastFeaturePoint;
 };
 
-WidgetResult widget(mat4 P, mat4 V, int i, vec3 *targetPosition, vec3 featurePointPosition, vec3 widgetColor = { 1.0, 0.0, 1.0 }) {
+WidgetResult widget(mat4 P, mat4 V, int i, vec3 *targetPosition, vec3 featurePointPosition, vec3 widgetColor = { 1.0, 0.0, 1.0 }, bool draw_only = false) {
     mat4 PV = P * V;
 
 
@@ -81,6 +81,7 @@ WidgetResult widget(mat4 P, mat4 V, int i, vec3 *targetPosition, vec3 featurePoi
 
 
     // bail conditions
+    if (draw_only) return {};
     if (globals._mouse_owner != COW_MOUSE_OWNER_NONE && globals._mouse_owner != COW_MOUSE_OWNER_WIDGET) return {};
     if ((selected_i != -1) && (selected_i != i)) return {};
 
