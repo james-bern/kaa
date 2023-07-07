@@ -631,7 +631,6 @@ void kaa() {
                     }
                 }
 
-
                 { // head
                     vec3 y = -boneNegativeYAxis[NUM_BONES - 1];
                     vec3 up = { 0.0, 1.0, 0.0 }; 
@@ -640,6 +639,7 @@ void kaa() {
                     vec3 o = boneOrigins[NUM_BONES];
                     head.draw(P, V, M4_xyzo(x, y, z, o));
                 }
+
                 { // body
                     do_once {
                         body.num_bones = NUM_BONES;
