@@ -1,9 +1,6 @@
 // GPU picking
-// TODO: see if you can run cow while running an app in VR
 
-// TODO figure out how bones should be set up
-// TODO: zbrush dragon skin
-// TODO: convenient way of scaling meshes on import
+// TODO: see if you can run cow while running an app in VR
 // TODO: floor
 // TODO: make line and spheres show up through the transparent mesh as well
 // TODO: revisit the hessian (kim-style SparseMatrix parallel add?)
@@ -583,7 +580,7 @@ void kaa() {
             if (globals.key_pressed[COW_KEY_TAB]) ++tabs;
             static bool dragon;
             gui_checkbox("dragon", &dragon, 'd');
-            if (!dragon) { // skinning
+            if (!dragon) {
                 {
                     if (tabs % 3 == 0) {
                         sim.draw(P, V, M4_Identity(), &currentState);
@@ -604,36 +601,20 @@ void kaa() {
                         eso_end();
                     }
                 }
-            } else {
-                // draw the x axes unsheared
-                // TODO: IndexedTriangleMesh3D::_applyTransform()
-                // ? TODO: bbox on the body to make the translation easier
-
-
+            } else { // skinning
                 static IndexedTriangleMesh3D head = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
                 static IndexedTriangleMesh3D body = _meshutil_indexed_triangle_mesh_load("body.obj", false, true, false);
                 do_once {
                     mat4 RS = M4_RotationAboutXAxis(PI / 2) * M4_Scaling(0.05);
-
-                    // TODO: head._applyTransform()
-                    for_(vertex_i, head.num_vertices) {
-                        mat4 Cow_from_ZBrush = RS;
-                        head.vertex_positions[vertex_i] = transformPoint(Cow_from_ZBrush, head.vertex_positions[vertex_i]);
-                        head.vertex_normals[vertex_i] = transformNormal(Cow_from_ZBrush, head.vertex_normals[vertex_i]);
-                    }
-
-                    for_(vertex_i, body.num_vertices) {
-                        mat4 Cow_from_ZBrush = M4_Translation(0.0, -0.67, 0.0) * RS;
-                        body.vertex_positions[vertex_i] = transformPoint(Cow_from_ZBrush, body.vertex_positions[vertex_i]);
-                        body.vertex_normals[vertex_i] = transformNormal(Cow_from_ZBrush, body.vertex_normals[vertex_i]);
-                    }
+                    head._applyTransform(RS);
+                    body._applyTransform(M4_Translation(0.0, -0.67, 0.0) * RS);
                 };
 
                 const int NUM_BONES = MESH_NUMBER_OF_NODE_LAYERS - 1;
 
-                vec3 boneOrigins              [NUM_BONES + 1];
-                vec3 boneOriginsRest          [NUM_BONES + 1];
-                vec3 boneXAxisFeaturePoint    [NUM_BONES + 1];
+                vec3 boneOrigins          [NUM_BONES + 1];
+                vec3 boneOriginsRest      [NUM_BONES + 1];
+                vec3 boneXAxisFeaturePoint[NUM_BONES + 1];
                 {
                     for_(j, _COUNT_OF(boneOrigins)) {
                         boneOrigins              [j] = get(currentState.x, 9 + j * 10);
@@ -652,9 +633,6 @@ void kaa() {
                 }
 
 
-                // soup_draw(PV, SOUP_LINE_STRIP, _COUNT_OF(boneOriginsRest), boneOriginsRest, NULL, V3(1.0, 0.0, 1.0), 0, true);
-                // soup_draw(PV, SOUP_LINE_STRIP, _COUNT_OF(boneOrigins), boneOrigins, NULL, V3(0.0, 1.0, 1.0), 0, true);
-
                 { // head
                     vec3 y = -boneNegativeYAxis[NUM_BONES - 1];
                     vec3 up = { 0.0, 1.0, 0.0 }; 
@@ -664,7 +642,6 @@ void kaa() {
                     head.draw(P, V, M4_xyzo(x, y, z, o));
                 }
                 { // body
-
                     do_once {
                         body.num_bones = NUM_BONES;
                         body.bones = (mat4 *) malloc(NUM_BONES * sizeof(mat4));
@@ -693,21 +670,14 @@ void kaa() {
                     };
                     for_(bone_i, body.num_bones) {
                         vec3 y = -boneNegativeYAxis[bone_i];
-                        // vec3 up = { 0.0, 1.0, 0.0 }; 
-                        // vec3 x = normalized(cross(up, y));
-                        // vec3 x = normalized(cross(up, -boneNegativeYAxis[body.num_bones -1]));
                         vec3 x = bonePositiveXAxis[bone_i];
                         vec3 z = cross(x, y);
-                        // TODO
                         body.bones[bone_i] = M4_xyzo(x, y, z, boneOrigins[bone_i]) * M4_Translation(-boneOriginsRest[bone_i]);
-                        // body.bones[bone_i] = M4_Identity(); // FORNOW
                         // library.soups.axes.draw(PV * body.bones[bone_i] * M4_Scaling(0.3));
                     }
                     body.draw(P, V, globals.Identity);
                 }
             }
-
-
 
             { // ceiling
                 real r = 0.3;
