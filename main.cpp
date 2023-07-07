@@ -527,7 +527,7 @@ void kaa() {
             }
         }
 
-        { // handle mouse input
+        { // widget
             bool mouseClickConsumed = false;
             bool mouseHotConsumed = false;
             { // SPOOF_targetPositions
@@ -571,8 +571,6 @@ void kaa() {
 
             }
         }
-
-
 
         { // draw scene
             static int tabs = 0;
@@ -697,7 +695,6 @@ void kaa() {
         }
 
 
-
         { // fornow
             if (globals.key_held['a']) SPOOF_targetPositions[0] = transformPoint(M4_RotationAboutYAxis(RAD(1)), SPOOF_targetPositions[0]);
         }
@@ -724,6 +721,7 @@ void kaa() {
             }
         }
     }
+    getchar();
 }
 
 #undef LEN_U
