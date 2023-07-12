@@ -23,6 +23,9 @@
 
 
 
+#if 0
+#include "fbo.cpp"
+#else
 
 
 
@@ -43,8 +46,8 @@
 
 bool AUTOMATED_SPEED_TEST__QUITS_AFTER_A_COUPLE_SECONDS = false;
 
-const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT = 3;
-const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT = 2;
+const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT = 2;
+const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT = 1;
 const bool  INCLUDE_DUMMY_SEGMENT                             = false; // FORNOW: bottom segment always 1 stack
 
 int IK_MAX_LINE_SEARCH_STEPS = 8;
@@ -721,7 +724,6 @@ void kaa() {
             }
         }
     }
-    getchar();
 }
 
 #undef LEN_U
@@ -729,10 +731,38 @@ void kaa() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+u32 _fbo_create(Texture texture) {
+    unsigned int fbo;
+    {
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture._texture_GLuint, 0);
+
+        unsigned int rbo;
+        glGenRenderbuffers(1, &rbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, texture.width, texture.height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+        ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);   
+    }
+    return fbo;
+}
+
+// TODO: extend to arbitrary ray
+
+delegate void cpp_test() {
+    _cow_init();
+    eg_kitchen_sink();
+}
+
 void main() {
     omp_set_num_threads(6);
+    // cpp_test();
     APPS {
         APP(kaa);
     }
 }
 
+#endif

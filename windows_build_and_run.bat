@@ -45,7 +45,7 @@ IF defined argv[--help] (
     codebase\ext\windows_glfw3.lib 
 
     cl     /Femain.exe  !COMMON! 
-    REM cl /LD /Fesnake.dll !COMMON! 
+    REM cl /DJIM_REDIRECT_PRINTF_TO_LOG_TXT /LD /Fesnake.dll !COMMON! 
 
     IF EXIST "main.exe" (
         IF defined argv[--debug-vscode] (
