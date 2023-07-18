@@ -791,8 +791,8 @@ void main() {
     omp_set_num_threads(6);
     // cpp_test();
     APPS {
-        // APP(kaa);
-        APP(jones);
+        APP(kaa);
+        // APP(jones);
     }
 }
 
