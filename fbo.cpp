@@ -17,7 +17,7 @@ u32 _fbo_create(Texture texture) {
     return fbo;
 }
 
-// TODO: extend to arbitrary ray
+// TODO: give bunny bones (add this 
 
 void app_fbo() {
     char *vertex_shader_source = R""(
@@ -69,7 +69,7 @@ void app_fbo() {
         mat4 V = camera_get_V(&camera);
         mat4 PV = P * V;
         static real time = 0.0;
-        // time += 0.0167;
+        time += 0.0167;
 
 
         IndexedTriangleMesh3D *mesh = &library.meshes.bunny;
@@ -200,27 +200,16 @@ void app_fbo() {
 
                 { // intersection point
                     // TODO: CPU bone stuff
-                    eso_begin(PV, SOUP_POINTS, 5.0, true);
-                    eso_color(1.0, 0.0, 1.0);
                     vec3 p = {};
                     for_(d, 3) p += w[d] * vertex_positions[tri[d]];
-                    eso_vertex(p);
-                    eso_end();
+                    draw_ball(P, V, p, monokai.green);
                 }
             }
         }
 
-        eso_begin(PV, SOUP_LINES, 2.0);
-        eso_color(monokai.yellow);
-        eso_vertex(ray_origin);
-        eso_vertex(ray_origin + 2.0 * ray_direction);
-        eso_end();
-
-
-
-
-
-
+        { // ray
+            draw_pipe(P, V, ray_origin, ray_origin + 2.0 * ray_direction, monokai.yellow, 0.5);
+        }
     }
 }
 

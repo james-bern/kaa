@@ -23,6 +23,21 @@
 
 #include "include.cpp"
 
+void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
+void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
+    real r = scale * 0.007;
+    vec3 e = t - s;
+    real mag_e = norm(e);
+    vec3 E = { 0.0, 1.0, 0.0 };
+    vec3 e_hat = e / mag_e;
+    vec3 u = cross(e_hat, E);
+    real norm_u = norm(u);
+    mat4 R = (norm_u < 1.0e-7) ? globals.Identity : M4_RotationAxisAngle(u / norm_u, ((dot(e_hat, E) < 0) ? 1.0 : -1.0) * asin(norm_u));
+    library.meshes.cylinder.draw(P, V, M4_Translation(0.5 * (s + t)) * R * M4_Scaling(r, mag_e, r) * M4_Translation(0.0, -0.5, 0.0), color);
+};
+
+#include "widget.cpp"
+
 struct RayTriangleIntersectionResult {
     bool hit;
     real t;
