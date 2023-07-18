@@ -1,10 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
-typedef double real;
-#define GL_REAL GL_DOUBLE
-#define JIM_IS_JIM
-#define SNAIL_I_SOLEMNLY_SWEAR_I_AM_UP_TO_NO_GOOD
-#include "C:\Users\Jim\Documents\GitHub\CS3XX\include.cpp"
-
 u32 _fbo_create(Texture texture) {
     unsigned int fbo;
     {
@@ -29,9 +22,11 @@ u32 _fbo_create(Texture texture) {
 void app_fbo() {
     char *vertex_shader_source = R""(
             #version 330 core
+
             uniform mat4 transform;
             uniform float time;
             layout (location = 0) in vec3 vertex_position;
+            out vec3 w;
 
             mat3 rotation3dY(float angle) {
                 float s = sin(angle);
@@ -40,17 +35,22 @@ void app_fbo() {
             }
 
             void main() {
-                gl_Position = transform * vec4(rotation3dY(2.0 * sin(0.05 * time) * vertex_position.y) * vertex_position, 1.0);
+                gl_Position = transform * vec4(rotation3dY(1.0 * sin(0.02 * time) * vertex_position.y) * vertex_position, 1.0);
+                w = vec3(0.0); 
+                w[gl_VertexID % 3] = 1.0;
             }
         )"";
     char *fragment_shader_source = R""(
             #version 330 core
             precision highp float;
+
+            uniform bool IndexIfFalse_BarycentricWeightsIfTrue;
+
+            in  vec3 w;
             out vec4 fragColor;
-            uniform bool highlight;
             void main() {
-                vec3 color = vec3(0.0, 1.0, 1.0);
-                if (!highlight) {
+                vec3 color = w;
+                if (!IndexIfFalse_BarycentricWeightsIfTrue) {
                     int i = gl_PrimitiveID;
                     for (int d = 0; d < 3; ++d) {
                         color[d] = (i % 256) / 255.0;
@@ -72,25 +72,45 @@ void app_fbo() {
         // time += 0.0167;
 
 
-        IndexedTriangleMesh3D *mesh = &library.meshes.box;
+        IndexedTriangleMesh3D *mesh = &library.meshes.bunny;
         int num_vertices       = mesh->num_vertices;
         vec3 *vertex_positions = mesh->vertex_positions;
         int num_triangles      = mesh->num_triangles;
         int3 *triangle_indices = mesh->triangle_indices;
 
-        int triangleIndex = -1; {
-            u8 rgb[3]; {
-                static Texture texture = texture_create("fbo");
-                static u32 fbo = _fbo_create(texture);
+        vec3 ray_origin = { -2.0, 0.0, 0.0 };
+        static real a =  0.4;
+        static real b = -0.4;
+        gui_slider("a", &a, -1.0, 1.0);
+        gui_slider("b", &b, -1.0, 1.0);
+        vec3 ray_direction = normalized(V3(1.0, a, b));
+        mat4 ray_V; {
+            vec3 z = -ray_direction;
+            vec3 Up = { 0.0, 1.0, 0.0 };
+            vec3 y = cross(z, Up);
+            vec3 x = cross(y, z);
+            mat4 ray_C = M4_xyzo(x, y, z, ray_origin);
+            // library.soups.axes.draw(PV * ray_C);
+            ray_V = inverse(ray_C);
+        }
+        mat4 ray_PV = _window_get_P_perspective(RAD(5)) * ray_V;
 
+        int triangleIndex = -1;
+        Tri tri;
+        vec3 w;
+        if (1) {
+            static Texture texture = texture_create("fbo");
+            static u32 fbo = _fbo_create(texture);
+
+            u8 rgb[3]; { // triangle index
                 glBindFramebuffer(GL_FRAMEBUFFER, fbo); {
                     glClearColor(1, 1, 1, 1);
                     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                     {
-                        shader_set_uniform(&shader, "transform", PV); // TODO
-                        shader_set_uniform(&shader, "highlight", false);
+                        shader_set_uniform(&shader, "transform", ray_PV);
                         shader_set_uniform(&shader, "time", time);
+                        shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", false);
                         shader_pass_vertex_attribute(&shader, num_vertices, vertex_positions);
                         shader_draw(&shader, num_triangles, triangle_indices);
                     }
@@ -106,34 +126,96 @@ void app_fbo() {
                 gui_printf("g = %d\n", rgb[1]);
                 gui_printf("b = %d\n", rgb[2]);
 
-                glDisable(GL_DEPTH_TEST);
-                library.meshes.square.draw(globals.Identity, globals.Identity, globals.Identity, {}, texture.name);
-                glEnable(GL_DEPTH_TEST);
+                if (1) {
+                    glDisable(GL_DEPTH_TEST);
+                    library.meshes.square.draw(M4_Translation(0.5, 0.5) * M4_Scaling(0.3), globals.Identity, globals.Identity, {}, texture.name);
+                    glEnable(GL_DEPTH_TEST);
+                }
             }
-            if (rgb[0] + rgb[1] + rgb[2] != 3 * 255) triangleIndex = rgb[0] + 256 * rgb[1] + 256 * 256 * rgb[2];
+
+            if (rgb[0] + rgb[1] + rgb[2] != 3 * 255) {
+                triangleIndex = rgb[0] + 256 * rgb[1] + 256 * 256 * rgb[2];
+                tri = mesh->triangle_indices[triangleIndex];
+
+                { // barycentric lookup
+                    u8 rgb2[3];
+
+                    glBindFramebuffer(GL_FRAMEBUFFER, fbo); {
+                        glClearColor(1, 1, 1, 1);
+                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                        {
+                            shader_set_uniform(&shader, "transform", ray_PV);
+                            shader_set_uniform(&shader, "time", time);
+                            shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", true);
+
+                            vec3 _vertex_positions[] = { mesh->vertex_positions[tri[0]], mesh->vertex_positions[tri[1]], mesh->vertex_positions[tri[2]], };
+                            int3 _triangle_indices[] = { { 0, 1, 2, } };
+                            shader_pass_vertex_attribute(&shader, 3, _vertex_positions);
+                            shader_draw(&shader, 1, _triangle_indices);
+                        }
+
+                        {
+                            real width, height;
+                            _window_get_size(&width, &height);
+                            glReadPixels(int(width / 2), int(height / 2), 1, 1, GL_RGB, GL_UNSIGNED_BYTE, rgb2);
+                        }
+
+                        for_(d, 3) w[d] = rgb2[d] / 255.0;
+                    } glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+                    if (1) {
+                        glDisable(GL_DEPTH_TEST);
+                        library.meshes.square.draw(M4_Translation(0.5, -0.5) * M4_Scaling(0.3), globals.Identity, globals.Identity, {}, texture.name);
+                        glEnable(GL_DEPTH_TEST);
+                    }
+                }
+            }
+
             gui_printf("triangleIndex = %d\n", triangleIndex);
+            gui_printf("alpha = %lf\n", w[0]);
+            gui_printf("beta  = %lf\n", w[1]);
+            gui_printf("gamma = %lf\n", w[2]);
         }
 
-        if (triangleIndex != -1) { // color triangle of interest
-            {
-                shader_set_uniform(&shader, "transform", PV); // TODO
-                shader_set_uniform(&shader, "highlight", true); // TODO
+        { // drawing mesh
+            { // mesh->draw(P, V, globals.Identity);
+                shader_set_uniform(&shader, "transform", PV);
                 shader_set_uniform(&shader, "time", time);
+                shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", false);
                 shader_pass_vertex_attribute(&shader, num_vertices, vertex_positions);
-                shader_draw(&shader, 1, &triangle_indices[triangleIndex]);
+                shader_draw(&shader, num_triangles, triangle_indices);
             }
-            eso_begin(globals.Identity, SOUP_POINTS, 0, true);
-            eso_color(monokai.yellow);
-            eso_vertex(0.0, 0.0);
-            eso_end();
+            if (triangleIndex != -1) {
+                { // color triangle of interest
+                    shader_set_uniform(&shader, "transform", PV);
+                    shader_set_uniform(&shader, "time", time);
+                    shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", true);
+
+                    vec3 _vertex_positions[] = { mesh->vertex_positions[tri[0]], mesh->vertex_positions[tri[1]], mesh->vertex_positions[tri[2]], };
+                    int3 _triangle_indices[] = { { 0, 1, 2, } };
+                    shader_pass_vertex_attribute(&shader, 3, _vertex_positions);
+                    shader_draw(&shader, 1, _triangle_indices);
+                }
+
+                { // intersection point
+                    // TODO: CPU bone stuff
+                    eso_begin(PV, SOUP_POINTS, 5.0, true);
+                    eso_color(1.0, 0.0, 1.0);
+                    vec3 p = {};
+                    for_(d, 3) p += w[d] * vertex_positions[tri[d]];
+                    eso_vertex(p);
+                    eso_end();
+                }
+            }
         }
 
-        static vec3 ray_origin = { -2.0, 0.0, 0.0 };
-        static vec3 ray_direction = normalized(V3(1.0, 0.1, 0.1));
-        eso_begin(PV, SOUP_LINES);
+        eso_begin(PV, SOUP_LINES, 2.0);
+        eso_color(monokai.yellow);
         eso_vertex(ray_origin);
-        eso_vertex(ray_origin + 10.0 * ray_direction);
+        eso_vertex(ray_origin + 2.0 * ray_direction);
         eso_end();
+
 
 
 

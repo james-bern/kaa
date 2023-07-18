@@ -21,9 +21,36 @@
 // // cow
 // port MIN, MAX, etc. to be functions
 
+#include "include.cpp"
 
+struct RayTriangleIntersectionResult {
+    bool hit;
+    real t;
+    vec3 w;
+};
 
-#if 0
+RayTriangleIntersectionResult ray_triangle_intersection(vec3 o, vec3 dir, Tri tri, const SDVector &x) {
+    vec3 a = get(x, tri[0]);
+    vec3 b = get(x, tri[1]);
+    vec3 c = get(x, tri[2]);
+    //                                          p = p          
+    // alpha * a + beta * b + gamma * c           = o + t * dir
+    // alpha * a + beta * b + gamma * c - t * dir = o          
+    //                            [ a b c -dir] w = o          
+    //                                        F w = o          
+    vec4 w__t = inverse(M4(a.x, b.x, c.x, -dir.x, a.y, b.y, c.y, -dir.y, a.z, b.z, c.z, -dir.z, 1.0, 1.0, 1.0, 0.0)) * V4(o.x, o.y, o.z, 1);
+    bool hit; {
+        hit = true;
+        for (int k = 0; k < 4; ++k) hit &= w__t[k] > -TINY_VAL;
+    }
+    RayTriangleIntersectionResult result = {};
+    result.hit = hit;
+    result.t = w__t[3];
+    result.w = { w__t[0], w__t[0], w__t[0], };
+    return result;
+}
+
+#if 1
 #include "fbo.cpp"
 #else
 
@@ -52,7 +79,6 @@ const bool  INCLUDE_DUMMY_SEGMENT                             = true; // FORNOW:
 
 int IK_MAX_LINE_SEARCH_STEPS = 8;
 
-#include "include.cpp"
 
 const real ROBOT_SEGMENT_LENGTH = 0.1350;
 const real ROBOT_SEGMENT_RADIUS = 0.06 / 2;
@@ -269,40 +295,22 @@ delegate bool cpp_castRay(
     vec3 o = { ray_origin_x, ray_origin_y, ray_origin_z };
     vec3 dir = { ray_direction_x, ray_direction_y, ray_direction_z };
 
-    bool result = false;
+    bool hitTheMesh = false;
     double min_t = INFINITY;
     {
         for_(triangle_i, sim.num_triangles) {
             Tri tri = sim.triangle_indices[triangle_i];
-            vec3 a = get(currentState.x, tri[0]);
-            vec3 b = get(currentState.x, tri[1]);
-            vec3 c = get(currentState.x, tri[2]);
-            //                                          p = p          
-            // alpha * a + beta * b + gamma * c           = o + t * dir
-            // alpha * a + beta * b + gamma * c - t * dir = o          
-            //                            [ a b c -dir] w = o          
-            //                                        F w = o          
-            mat4 F = {
-                a.x, b.x, c.x, -dir.x,
-                a.y, b.y, c.y, -dir.y,
-                a.z, b.z, c.z, -dir.z,
-                1  , 1  , 1  ,  0    ,
-            };
-            vec4 w__t = inverse(F) * V4(o.x, o.y, o.z, 1);
-            bool hit; {
-                hit = true;
-                for (int k = 0; k < 4; ++k) hit &= w__t[k] > -TINY_VAL;
-            }
-            if (hit) {
-                result = true;
-                if (w__t[3] < min_t) {
-                    min_t = w__t[3];
+            RayTriangleIntersectionResult result = ray_triangle_intersection(o, dir, tri, currentState.x);
+            if (result.hit) {
+                hitTheMesh = true;
+                if (result.t < min_t) {
+                    min_t = result.t;
 
                     // FORNOW: potentially writes multiple times (up to once for each triangle intersected)
                     if (pleaseSetFeaturePoint) {
                         ASSERT(indexOfFeaturePointToSet >= 0);
                         ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
-                        featurePoints[indexOfFeaturePointToSet] = { { { tri[0], w__t[0] }, { tri[1], w__t[1] }, { tri[2], w__t[2] } } };
+                        featurePoints[indexOfFeaturePointToSet] = { { { tri[0], result.w[0] }, { tri[1], result.w[1] }, { tri[2], result.w[2] } } };
                         if (feature_point_positions__FLOAT3__ARRAY) {
                             vec3 tmp = get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
                             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
@@ -313,12 +321,12 @@ delegate bool cpp_castRay(
         }
     }
 
-    if (result) {
+    if (hitTheMesh) {
         vec3 intersection_position = o + min_t * dir;
         for_(d, 3) (((float *) intersection_position__FLOAT_ARRAY__LENGTH_3)[d]) = float(intersection_position[d]);
     }
 
-    return result;
+    return hitTheMesh;
 }
 
 // solves one step of IK (and physics)
