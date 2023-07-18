@@ -1,31 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
-typedef double real;
-#define GL_REAL GL_DOUBLE
-#define JIM_IS_JIM
-#define SNAIL_I_SOLEMNLY_SWEAR_I_AM_UP_TO_NO_GOOD
-#include "C:\Users\Jim\Documents\GitHub\CS3XX\include.cpp"
-
-u32 _fbo_create(Texture texture) {
-    unsigned int fbo;
-    {
-        glGenFramebuffers(1, &fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture._texture_GLuint, 0);
-
-        unsigned int rbo;
-        glGenRenderbuffers(1, &rbo);
-        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, texture.width, texture.height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
-        ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);   
-    }
-    return fbo;
-}
-
-// TODO: extend to arbitrary ray
-
 void app_fbo() {
     char *vertex_shader_source = R""(
             #version 330 core
@@ -139,13 +111,5 @@ void app_fbo() {
 
 
 
-    }
-}
-
-void main() {
-    APPS {
-        // APP(eg_shader);
-        // APP(eg_kitchen_sink);
-        APP(app_fbo);
     }
 }

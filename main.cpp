@@ -23,7 +23,7 @@
 
 
 
-#if 1
+#if 0
 #include "fbo.cpp"
 #else
 
@@ -46,9 +46,9 @@
 
 bool AUTOMATED_SPEED_TEST__QUITS_AFTER_A_COUPLE_SECONDS = false;
 
-const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT = 2;
-const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT = 1;
-const bool  INCLUDE_DUMMY_SEGMENT                             = false; // FORNOW: bottom segment always 1 stack
+const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT = 3;
+const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT = 2;
+const bool  INCLUDE_DUMMY_SEGMENT                             = true; // FORNOW: bottom segment always 1 stack
 
 int IK_MAX_LINE_SEARCH_STEPS = 8;
 
@@ -217,6 +217,35 @@ delegate void cpp_init() {
     sim.getNext(&currentState); // FORNOW: global_U_xx
 
     cpp_reset();
+}
+
+
+
+void jones() {
+    cpp_init();
+
+    Camera3D camera = { 1.7 * ROBOT_LENGTH, RAD(60), 0.0, 0.0, 0.0, -0.5 * ROBOT_LENGTH };
+    while (cow_begin_frame()) {
+        camera_move(&camera);
+        mat4 P = camera_get_P(&camera);
+        mat4 V = camera_get_V(&camera);
+        mat4 PV = P * V;
+
+        if (gui_button("reset", 'r')) cpp_reset();
+
+        { // sliders
+            for_(j, sim.num_cables) {
+                char buffer[] = "u_?";
+                buffer[2] = char('0' + j);
+                real a = (j < 3) ? ROBOT_SEGMENT_LENGTH : 2 * ROBOT_SEGMENT_LENGTH;
+                gui_slider(buffer, &currentState.u[j], -a, a);
+            }
+        }
+        currentState = sim.getNext(&currentState);
+
+        sim.draw(P * V, &currentState);
+        // sim.draw(P, V, globals.Identity, &currentState);
+    }
 }
 
 
@@ -459,6 +488,7 @@ void SPOOF_reset() {
     SPOOF_targetEnabled[0] = TRUE;
 }
 
+
 void kaa() {
     cpp_init();
     SPOOF_reset();
@@ -687,7 +717,7 @@ void kaa() {
                 if (tabs % 3 == 0) {
                     eso_color(1.0, 1.0, 1.0, 0.5);
                 } else {
-                    eso_color(0.0, 0.0, 0.0);
+                    eso_color(0.0, 0.0, 0.0, 0.5);
                 }
                 eso_vertex( r, 0.0,  r);
                 eso_vertex( r, 0.0, -r);
@@ -761,7 +791,8 @@ void main() {
     omp_set_num_threads(6);
     // cpp_test();
     APPS {
-        APP(kaa);
+        // APP(kaa);
+        APP(jones);
     }
 }
 

@@ -786,7 +786,7 @@ struct Sim {
         if (state->enabled__BIT_FIELD & CABLES) {
             for_(cable_i, num_cables) {
                 Via *cable = cables[cable_i];
-                eso_begin(PV, SOUP_LINE_STRIP);
+                eso_begin(PV, SOUP_LINE_STRIP, 10.0);
                 eso_color(color_kelly(cable_i));
                 for_(via_i, num_vias[cable_i]) eso_vertex(get(x, cable[via_i]));
                 eso_end();
