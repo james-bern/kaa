@@ -17,7 +17,8 @@ u32 _fbo_create(Texture texture) {
     return fbo;
 }
 
-// TODO: give bunny bones (add this 
+// TODO: give bunny bones (make this a builtin mesh in the library)
+// TODO: IndexedTriangleMesh3D should have an underscored function to grab CPU transformed weights
 
 void app_fbo() {
     char *vertex_shader_source = R""(
@@ -93,7 +94,7 @@ void app_fbo() {
             // library.soups.axes.draw(PV * ray_C);
             ray_V = inverse(ray_C);
         }
-        mat4 ray_PV = _window_get_P_perspective(RAD(5)) * ray_V;
+        mat4 ray_PV = _window_get_P_perspective(RAD(3)) * ray_V;
 
         int triangleIndex = -1;
         Tri tri;
