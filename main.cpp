@@ -283,7 +283,14 @@ void jones() {
         if (gui_button("disable / enable cables", 'c')) currentState.enabled__BIT_FIELD ^= CABLES;
         if (gui_button("disable cables", 'r')) cpp_reset();
 
+
         // TODO: we assume that Sadra "assembles" / sets each motor so its cable is just barely taught
+        // - TODO: modify cableReferenceLengths
+
+
+        // L = L_rest - u
+        // (from soft_robot.cpp) cableReferenceLengths = getCableLengths(x_rest);
+
         { // control sliders
             for_(j, sim.num_cables) {
                 char buffer[] = "u_?";
