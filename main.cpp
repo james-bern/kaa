@@ -285,11 +285,8 @@ void jones() {
 
 
         // TODO: we assume that Sadra "assembles" / sets each motor so its cable is just barely taught
-        // - TODO: modify cableReferenceLengths
+        // - TODO: modify sim.cableReferenceLengths
 
-
-        // L = L_rest - u
-        // (from soft_robot.cpp) cableReferenceLengths = getCableLengths(x_rest);
 
         { // control sliders
             for_(j, sim.num_cables) {
