@@ -283,17 +283,15 @@ void jones() {
         if (gui_button("disable / enable cables", 'c')) currentState.enabled__BIT_FIELD ^= CABLES;
         if (gui_button("disable cables", 'r')) cpp_reset();
 
-        static SDVector u0(sim.num_cables); // TODO: set this to correct for gravitational load
-        static SDVector delta_u(sim.num_cables);
+        // TODO: we assume that Sadra "assembles" / sets each motor so its cable is just barely taught
         { // control sliders
             for_(j, sim.num_cables) {
-                char buffer[] = "du_?";
+                char buffer[] = "u_?";
                 buffer[strlen(buffer) - 1] = char('0' + j);
                 real a = (j < 3) ? ROBOT_SEGMENT_LENGTH : 2 * ROBOT_SEGMENT_LENGTH;
-                gui_slider(buffer, &delta_u[j], -a, a);
+                gui_slider(buffer, &currentState.u[j], -a, a);
             }
         }
-        currentState.u = u0 + delta_u;
         currentState = sim.getNext(&currentState);
 
         sim.draw(P * V, &currentState);
