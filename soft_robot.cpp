@@ -20,15 +20,14 @@ SDMatrix global_dFdu;
 
 real residualConvergenceThreshold = 1e-5;
 
-real pinSpringConstant = 1.0e7;
 real tetMassDensity = 200.0;
-real cableSpringConstant = 1.0e9;
-real gravitationalConstant = 10.0;
+real tetYoungsModulus = 1000000;
+real tetPoissonsRatio = .47;
 
-real _tetYoungsModulus = 1000000;
-real _tetPoissonsRatio = .47;
-real _lambda = (_tetYoungsModulus * _tetPoissonsRatio) / ((1 + _tetPoissonsRatio) * (1 - 2 * _tetPoissonsRatio));
-real _mu = _tetYoungsModulus / (2 * (1 + _tetPoissonsRatio));
+real pinSpringConstant = 1.0e7;
+real cableSpringConstant = 1.0e9;
+real gravitationalConstant = 9.81;
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -209,7 +208,7 @@ struct Sim {
     SDVector x_rest;
 
     FixedSizeSelfDestructingArray<Mat> tet_dXinv;
-    SDVector nodeMasses;
+    SDVector nodeMasses__NOTE_tetDensity_not_yet_multiplied_on;
     SDVector tetRestVolumes;
     SDVector cableReferenceLengths;
 
@@ -256,7 +255,7 @@ struct Sim {
             for_(tet_i, num_tets) tet_dXinv[tet_i] = inverse(tet_dXinv[tet_i]);
         }
 
-        nodeMasses = SDVector(num_nodes);
+        nodeMasses__NOTE_tetDensity_not_yet_multiplied_on = SDVector(num_nodes);
         tetRestVolumes = SDVector(num_tets);
         {
             for_(tet_i, num_tets) {
@@ -266,7 +265,7 @@ struct Sim {
                 #undef e
                 for_(node_ii, SOFT_ROBOT_DIM + 1) {
                     int node_i = tet[node_ii];
-                    nodeMasses[node_i] += tetMassDensity * tetRestVolumes[tet_i] / (SOFT_ROBOT_DIM + 1);
+                    nodeMasses__NOTE_tetDensity_not_yet_multiplied_on[node_i] += tetRestVolumes[tet_i] / (SOFT_ROBOT_DIM + 1);
                 }
             }
         }
@@ -425,6 +424,7 @@ struct Sim {
         const SDVector &u     = state->u;
         const SDVector &x_pin = state->x_pin;
 
+
         if (state->enabled__BIT_FIELD & PINS) {
             for_(pin_i, num_pins) {
                 int pin = pins[pin_i];
@@ -438,13 +438,17 @@ struct Sim {
         if (state->enabled__BIT_FIELD & GRAVITY) {
             for_(i, num_nodes) {
                 Vec minusGravitationalAcceleration = { 0.0, gravitationalConstant, 0.0 };
-                if (U) { (*U) += nodeMasses[i] * dot(minusGravitationalAcceleration, get(x, i)); }
-                if (U_x) { add(*U_x, i, nodeMasses[i] * minusGravitationalAcceleration); }
+                if (U) { (*U) += tetMassDensity * nodeMasses__NOTE_tetDensity_not_yet_multiplied_on[i] * dot(minusGravitationalAcceleration, get(x, i)); }
+                if (U_x) { add(*U_x, i, tetMassDensity * nodeMasses__NOTE_tetDensity_not_yet_multiplied_on[i] * minusGravitationalAcceleration); }
             }
         }
 
 
         if (state->enabled__BIT_FIELD & TETS) { 
+
+            real _lambda = (tetYoungsModulus * tetPoissonsRatio) / ((1 + tetPoissonsRatio) * (1 - 2 * tetPoissonsRatio));
+            real _mu = tetYoungsModulus / (2 * (1 + tetPoissonsRatio));
+
             #define NUM_TETS 2048
             ASSERT(num_tets <= NUM_TETS);
             static real blocks_U[NUM_TETS];

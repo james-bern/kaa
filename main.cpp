@@ -65,7 +65,7 @@ RayTriangleIntersectionResult ray_triangle_intersection(vec3 o, vec3 dir, Tri tr
     return result;
 }
 
-#if 1
+#if 0
 #include "fbo.cpp"
 #else
 
@@ -274,14 +274,26 @@ void jones() {
 
         if (gui_button("reset", 'r')) cpp_reset();
 
-        { // sliders
+
+        { // parameter sliders
+            gui_slider("tetMassDensity", &tetMassDensity, 0.0, 10000.0);
+            gui_slider("tetYoungsModulus", &tetYoungsModulus, 2.0, 8.0, false, true);
+            gui_slider("tetPoissonsRatio", &tetPoissonsRatio, 0.01, 0.49);
+        }
+        if (gui_button("disable / enable cables", 'c')) currentState.enabled__BIT_FIELD ^= CABLES;
+        if (gui_button("disable cables", 'r')) cpp_reset();
+
+        static SDVector u0(sim.num_cables); // TODO: set this to correct for gravitational load
+        static SDVector delta_u(sim.num_cables);
+        { // control sliders
             for_(j, sim.num_cables) {
-                char buffer[] = "u_?";
-                buffer[2] = char('0' + j);
+                char buffer[] = "du_?";
+                buffer[strlen(buffer) - 1] = char('0' + j);
                 real a = (j < 3) ? ROBOT_SEGMENT_LENGTH : 2 * ROBOT_SEGMENT_LENGTH;
-                gui_slider(buffer, &currentState.u[j], -a, a);
+                gui_slider(buffer, &delta_u[j], -a, a);
             }
         }
+        currentState.u = u0 + delta_u;
         currentState = sim.getNext(&currentState);
 
         sim.draw(P * V, &currentState);
@@ -814,8 +826,8 @@ void main() {
     omp_set_num_threads(6);
     // cpp_test();
     APPS {
-        APP(kaa);
-        // APP(jones);
+        // APP(kaa);
+        APP(jones);
     }
 }
 
