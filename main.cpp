@@ -60,8 +60,8 @@ RayTriangleIntersectionResult ray_triangle_intersection(vec3 o, vec3 dir, Tri tr
     }
     RayTriangleIntersectionResult result = {};
     result.hit = hit;
+    for_(d, 3) result.w[d] = w__t[d];
     result.t = w__t[3];
-    result.w = { w__t[0], w__t[0], w__t[0], };
     return result;
 }
 
@@ -90,12 +90,12 @@ bool AUTOMATED_SPEED_TEST__QUITS_AFTER_A_COUPLE_SECONDS = false;
 
 const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT = 3;
 const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT = 2;
-const bool  INCLUDE_DUMMY_SEGMENT                             = true; // FORNOW: bottom segment always 1 stack
+const bool  INCLUDE_DUMMY_SEGMENT                             = false; // FORNOW: bottom segment always 1 stack
 
 int IK_MAX_LINE_SEARCH_STEPS = 8;
 
 
-const real ROBOT_SEGMENT_LENGTH = 0.1350;
+const real ROBOT_SEGMENT_LENGTH = 0.1450;
 const real ROBOT_SEGMENT_RADIUS = 0.06 / 2;
 const int  ROBOT_NUMBER_OF_UPPER_SEGMENTS = 1;
 const int  ROBOT_NUMBER_OF_LOWER_SEGMENTS = 4;
@@ -285,7 +285,7 @@ void jones() {
 
 
         // TODO: we assume that Sadra "assembles" / sets each motor so its cable is just barely taught
-        // - TODO: modify sim.cableReferenceLengths
+        // - TODO: modify simecableReferenceLengths
 
 
         { // control sliders
@@ -828,8 +828,8 @@ void main() {
     omp_set_num_threads(6);
     // cpp_test();
     APPS {
-        // APP(kaa);
-        APP(jones);
+        APP(kaa);
+        // APP(jones);
     }
 }
 
