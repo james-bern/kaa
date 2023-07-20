@@ -65,7 +65,7 @@ RayTriangleIntersectionResult ray_triangle_intersection(vec3 o, vec3 dir, Tri tr
     return result;
 }
 
-#if 0
+#if 1
 #include "fbo.cpp"
 #else
 
