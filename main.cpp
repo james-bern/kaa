@@ -361,14 +361,17 @@ delegate bool cpp_castRay(
 // solves one step of IK (and physics)
 // writes resulting mesh to vertex_positions__FLOAT3_ARRAY, vertex_normals__FLOAT3_ARRAY, triangle_indices__UINT_ARRAY
 // also writes feature_point_positions__FLOAT3__ARRAY for use by unity
-delegate void cpp_solve(
+// returns whether the optimization has converged (norm(gradient) < CONVERGENCE_TOLERANCE)
+delegate bool cpp_solve(
         int num_feature_points,
         void *_targetEnabled__INT_ARRAY,
         void *_targetPositions__FLOAT3_ARRAY,
         void *vertex_positions__FLOAT3_ARRAY,
         void *vertex_normals__FLOAT3_ARRAY,
         void *triangle_indices__UINT_ARRAY,
-        void *feature_point_positions__FLOAT3__ARRAY) {
+        void *feature_point_positions__FLOAT3__ARRAY,
+        real CONVERGENCE_TOLERANCE = 0.15)
+{
 
     ASSERT(num_feature_points <= MAX_NUM_FEATURE_POINTS);
     int *targetEnabled = (int *) _targetEnabled__INT_ARRAY;
@@ -382,7 +385,8 @@ delegate void cpp_solve(
         for_(i, MAX_NUM_FEATURE_POINTS) relax &= (!targetEnabled[i]);
     }
 
-    if (1) { // step ik
+    bool result__converged;
+    { // step ik
         static real Q_c      = 1.0;
         static real R_c_log  = 0.0036;
         static real R_c_quad = 0.0036;
@@ -437,53 +441,52 @@ delegate void cpp_solve(
 
         { // single gradient descent step with backtracking line search
             SDVector dOdu(LEN_U);
-
             SDVector &u = currentState.u;
             const SDVector &x = currentState.x;
-
-            if (project) { // project
-                SDVector Slacks = sim.computeCableDeltas(x, u);
-                for_(j, LEN_U) Slacks[j] = -MIN(0.0, Slacks[j]);
-                for_(j, LEN_U) {
-                    if (Slacks[j] > -.000001) {
-                        u[j] += Slacks[j] + .00001;
+            {
+                if (project) { // project
+                    SDVector Slacks = sim.computeCableDeltas(x, u);
+                    for_(j, LEN_U) Slacks[j] = -MIN(0.0, Slacks[j]);
+                    for_(j, LEN_U) {
+                        if (Slacks[j] > -.000001) {
+                            u[j] += Slacks[j] + .00001;
+                        }
                     }
+                }
+                if (relax) {
+                    // TODO scalar multiplication
+                    for_(j, sim.num_cables) {
+                        dOdu[j] += _R_c_RELAX * u[j];
+                    }
+                } else {
+                    SDVector dQdu; {
+                        SDVector dQdx(LEN_X); {
+                            for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) add(dQdx, featurePoints[i], Q_c * get(x, featurePoints[i]) - targetPositions[i]);
+                        }
+                        SDVector L = global_U_xx.solve(dQdx);
+                        dQdu = L * global_dFdu;
+                    }
+
+                    SDVector dRdu(LEN_U); {
+                        for_(j, sim.num_cables) {
+                            dRdu[j] += R_c_quad * u[j];
+                            dRdu[j] += R_c_log  / (u_MAX[j] - u[j]);
+                            if (u[j] > u_MAX[j]) { dRdu[j] = INFINITY; }
+                        }
+                    }
+
+                    SDVector dSdu(LEN_U); {
+                        SDVector Deltas = sim.computeCableDeltas(x, u);
+                        for_(j, sim.num_cables) {
+                            dSdu[j] += -ZCQp(S_c, S_eps - Deltas[j]);
+                        }
+                    }
+
+                    for_(j, LEN_U) dOdu[j] = dQdu[j] + dRdu[j] + dSdu[j];
+                    for_(j, LEN_U) if (_isnan(dOdu[j])) dOdu[j] = 0; // FORNOW
                 }
             }
-
-            if (relax) {
-                // TODO scalar multiplication
-                for_(j, sim.num_cables) {
-                    dOdu[j] += _R_c_RELAX * u[j];
-                }
-            } else {
-                SDVector dQdu; {
-                    SDVector dQdx(LEN_X); {
-                        for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) add(dQdx, featurePoints[i], Q_c * get(x, featurePoints[i]) - targetPositions[i]);
-                    }
-                    SDVector L = global_U_xx.solve(dQdx);
-                    dQdu = L * global_dFdu;
-                }
-
-                SDVector dRdu(LEN_U); {
-                    for_(j, sim.num_cables) {
-                        dRdu[j] += R_c_quad * u[j];
-                        dRdu[j] += R_c_log  / (u_MAX[j] - u[j]);
-                        if (u[j] > u_MAX[j]) { dRdu[j] = INFINITY; }
-                    }
-                }
-
-                SDVector dSdu(LEN_U); {
-                    SDVector Deltas = sim.computeCableDeltas(x, u);
-                    for_(j, sim.num_cables) {
-                        dSdu[j] += -ZCQp(S_c, S_eps - Deltas[j]);
-                    }
-                }
-
-                for_(j, LEN_U) dOdu[j] = dQdu[j] + dRdu[j] + dSdu[j];
-                for_(j, LEN_U) if (_isnan(dOdu[j])) dOdu[j] = 0; // FORNOW
-            }
-
+            result__converged = norm(dOdu) < CONVERGENCE_TOLERANCE;
             {
                 real O_curr = get_O(currentState);
                 State nextState = currentState;
@@ -513,6 +516,8 @@ delegate void cpp_solve(
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * i + d] = float(tmp[d]);
         }
     }
+
+    return result__converged;
 }
 
 vec3 SPOOF_targetPositions[MAX_NUM_FEATURE_POINTS];
@@ -586,7 +591,7 @@ void kaa() {
                     for_(k, _COUNT_OF(_SPOOF_target_positions__FLOAT_ARRAY)) _SPOOF_target_positions__FLOAT_ARRAY[k] = float(((real *) SPOOF_targetPositions)[k]);
                 }
 
-                cpp_solve(
+                bool converged = cpp_solve(
                         MAX_NUM_FEATURE_POINTS,
                         SPOOF_targetEnabled,
                         _SPOOF_target_positions__FLOAT_ARRAY,
@@ -594,6 +599,7 @@ void kaa() {
                         SPOOF_vertex_normals,
                         SPOOF_triangle_indices,
                         SPOOF_feature_point_positions);
+                gui_readout("converged", &converged);
             }
         }
 

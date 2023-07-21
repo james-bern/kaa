@@ -21,27 +21,30 @@ u32 _fbo_create(Texture texture) {
 // TODO: IndexedTriangleMesh3D should have an underscored function to grab CPU transformed weights
 
 void app_fbo() {
-    char *vertex_shader_source = R""(
+    char *picking_vertex_shader_source = R""(
             #version 330 core
 
             uniform mat4 transform;
             uniform float time;
-            layout (location = 0) in vec3 vertex_position;
+            layout (location = 0) in  vec3 vertex;
+            layout (location = 1) in ivec4 boneIndices;
+            layout (location = 2) in  vec4 boneWeights;
+            uniform mat4 bones[64];
+
             out vec3 w;
 
-            mat3 rotation3dY(float angle) {
-                float s = sin(angle);
-                float c = cos(angle);
-                return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
-            }
-
             void main() {
-                gl_Position = transform * vec4(rotation3dY(1.0 * sin(0.02 * time) * vertex_position.y) * vertex_position, 1.0);
+                vec4 tmp_position = vec4(vertex, 1.0);
+                tmp_position = boneWeights.x * (bones[boneIndices.x] * tmp_position)
+                             + boneWeights.y * (bones[boneIndices.y] * tmp_position)
+                             + boneWeights.z * (bones[boneIndices.z] * tmp_position)
+                             + boneWeights.w * (bones[boneIndices.w] * tmp_position);
+                gl_Position = transform * tmp_position;
                 w = vec3(0.0); 
                 w[gl_VertexID % 3] = 1.0;
             }
         )"";
-    char *fragment_shader_source = R""(
+    char *picking_fragment_shader_source = R""(
             #version 330 core
             precision highp float;
 
@@ -61,7 +64,38 @@ void app_fbo() {
                 fragColor = vec4(color, 1.0);
             }
         )"";
-    Shader shader = shader_create(vertex_shader_source, fragment_shader_source);
+    Shader shader = shader_create(picking_vertex_shader_source, picking_fragment_shader_source);
+
+    // TODO: use transform mesh (what you did messes up the normals) -- give better name PositionsAndNormals
+
+    // IndexedTriangleMesh3D mesh = library.meshes.sphere;
+    // {
+    //     mat4 S = M4_Scaling(0.2, 0.5, 0.2);
+    //     mat4 T = M4_Translation(0.0, 0.5, 0.0);
+    //     mat4 M = T * S;
+    //     for_(i, mesh.num_vertices) mesh.vertex_positions[i] = transformPoint(M, mesh.vertex_positions[i]);
+
+    //     mesh.num_bones = 2;
+    //     mesh.bones = (mat4 *) malloc(mesh.num_bones * sizeof(mat4));
+    //     for_(i, mesh.num_bones) mesh.bones[i] = globals.Identity;
+    //     mesh.bone_indices = (int4 *) malloc(mesh.num_vertices * sizeof(int4));
+    //     for_(i, mesh.num_vertices) mesh.bone_indices[i] = { 0, 1, 0, 0 };
+    //     mesh.bone_weights = (vec4 *) malloc(mesh.num_vertices * sizeof(vec4));
+    //     for_(i, mesh.num_vertices) {
+    //         real y = mesh.vertex_positions[i].y;
+    //         mesh.bone_weights[i] = { 1.0 - y, y, 0.0, 0.0 };
+    //     }
+    // }
+    IndexedTriangleMesh3D mesh = library.meshes.bean;
+    int num_vertices       = mesh.num_vertices;
+    vec3 *vertex_positions = mesh.vertex_positions;
+    int num_triangles      = mesh.num_triangles;
+    int3 *triangle_indices = mesh.triangle_indices;
+    int num_bones          = mesh.num_bones;
+    mat4 *bones            = mesh.bones;
+    int4 *bone_indices     = mesh.bone_indices;
+    vec4 *bone_weights     = mesh.bone_weights;
+    // mesh._dump_for_library("tmp.txt", "bean");
 
     while (cow_begin_frame()) {
         static Camera3D camera = { 6.0 };
@@ -72,16 +106,12 @@ void app_fbo() {
         static real time = 0.0;
         time += 0.0167;
 
+        mesh.bones[0] = M4_RotationAboutXAxis(sin(0.1 * time));
 
-        IndexedTriangleMesh3D *mesh = &library.meshes.bunny;
-        int num_vertices       = mesh->num_vertices;
-        vec3 *vertex_positions = mesh->vertex_positions;
-        int num_triangles      = mesh->num_triangles;
-        int3 *triangle_indices = mesh->triangle_indices;
 
         vec3 ray_origin = { -2.0, 0.0, 0.0 };
-        static real a =  0.4;
-        static real b = -0.4;
+        static real a = 0.1;
+        static real b = 0.0;
         gui_slider("a", &a, -1.0, 1.0);
         gui_slider("b", &b, -1.0, 1.0);
         vec3 ray_direction = normalized(V3(1.0, a, b));
@@ -109,10 +139,13 @@ void app_fbo() {
                     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                     {
+                        shader_set_uniform(&shader, "bones", num_bones, bones);
                         shader_set_uniform(&shader, "transform", ray_PV);
                         shader_set_uniform(&shader, "time", time);
                         shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", false);
                         shader_pass_vertex_attribute(&shader, num_vertices, vertex_positions);
+                        shader_pass_vertex_attribute(&shader, num_vertices, bone_indices);
+                        shader_pass_vertex_attribute(&shader, num_vertices, bone_weights);
                         shader_draw(&shader, num_triangles, triangle_indices);
                     }
 
@@ -136,7 +169,7 @@ void app_fbo() {
 
             if (rgb[0] + rgb[1] + rgb[2] != 3 * 255) {
                 triangleIndex = rgb[0] + 256 * rgb[1] + 256 * 256 * rgb[2];
-                tri = mesh->triangle_indices[triangleIndex];
+                tri = mesh.triangle_indices[triangleIndex];
 
                 { // barycentric lookup
                     u8 rgb2[3];
@@ -150,9 +183,13 @@ void app_fbo() {
                             shader_set_uniform(&shader, "time", time);
                             shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", true);
 
-                            vec3 _vertex_positions[] = { mesh->vertex_positions[tri[0]], mesh->vertex_positions[tri[1]], mesh->vertex_positions[tri[2]], };
+                            vec3 _vertex_positions[] = { mesh.vertex_positions[tri[0]], mesh.vertex_positions[tri[1]], mesh.vertex_positions[tri[2]], };
+                            int4 _bone_indices[] = { mesh.bone_indices[tri[0]], mesh.bone_indices[tri[1]], mesh.bone_indices[tri[2]], };
+                            vec4 _bone_weights[] = { mesh.bone_weights[tri[0]], mesh.bone_weights[tri[1]], mesh.bone_weights[tri[2]], };
                             int3 _triangle_indices[] = { { 0, 1, 2, } };
                             shader_pass_vertex_attribute(&shader, 3, _vertex_positions);
+                            shader_pass_vertex_attribute(&shader, 3, _bone_indices);
+                            shader_pass_vertex_attribute(&shader, 3, _bone_weights);
                             shader_draw(&shader, 1, _triangle_indices);
                         }
 
@@ -180,30 +217,37 @@ void app_fbo() {
         }
 
         { // drawing mesh
-            { // mesh->draw(P, V, globals.Identity);
+            { // mesh.draw(P, V, globals.Identity);
+                shader_set_uniform(&shader, "bones", num_bones, bones);
                 shader_set_uniform(&shader, "transform", PV);
                 shader_set_uniform(&shader, "time", time);
                 shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", false);
                 shader_pass_vertex_attribute(&shader, num_vertices, vertex_positions);
+                shader_pass_vertex_attribute(&shader, num_vertices, bone_indices);
+                shader_pass_vertex_attribute(&shader, num_vertices, bone_weights);
                 shader_draw(&shader, num_triangles, triangle_indices);
             }
             if (triangleIndex != -1) {
                 { // color triangle of interest
+                    shader_set_uniform(&shader, "bones", num_bones, bones);
                     shader_set_uniform(&shader, "transform", PV);
                     shader_set_uniform(&shader, "time", time);
                     shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", true);
 
-                    vec3 _vertex_positions[] = { mesh->vertex_positions[tri[0]], mesh->vertex_positions[tri[1]], mesh->vertex_positions[tri[2]], };
+                    vec3 _vertex_positions[] = { mesh.vertex_positions[tri[0]], mesh.vertex_positions[tri[1]], mesh.vertex_positions[tri[2]], };
+                    int4 _bone_indices[] = { mesh.bone_indices[tri[0]], mesh.bone_indices[tri[1]], mesh.bone_indices[tri[2]], };
+                    vec4 _bone_weights[] = { mesh.bone_weights[tri[0]], mesh.bone_weights[tri[1]], mesh.bone_weights[tri[2]], };
                     int3 _triangle_indices[] = { { 0, 1, 2, } };
                     shader_pass_vertex_attribute(&shader, 3, _vertex_positions);
+                    shader_pass_vertex_attribute(&shader, 3, _bone_indices);
+                    shader_pass_vertex_attribute(&shader, 3, _bone_weights);
                     shader_draw(&shader, 1, _triangle_indices);
                 }
 
                 { // intersection point
                     // TODO: CPU bone stuff
-                    vec3 p = {};
-                    for_(d, 3) p += w[d] * vertex_positions[tri[d]];
-                    draw_ball(P, V, p, monokai.green);
+                    vec3 p = mesh._skin(tri, w);
+                    draw_ball(P, V, p);
                 }
             }
         }
