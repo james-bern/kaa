@@ -16,13 +16,7 @@ u32 _fbo_create(Texture texture) {
     }
     return fbo;
 }
-struct PickResult {
-    bool hit;
-    int3 tri;
-    vec3 w;
-    vec3 p;
-};
-PickResult pick(IndexedTriangleMesh3D *mesh, vec3 ray_origin, vec3 ray_direction) {
+IntersectionResult GPU_pick(vec3 ray_origin, vec3 ray_direction, IndexedTriangleMesh3D *mesh) {
     int num_vertices       = mesh->num_vertices;
     vec3 *vertex_positions = mesh->vertex_positions;
     int num_triangles      = mesh->num_triangles;
@@ -90,10 +84,7 @@ PickResult pick(IndexedTriangleMesh3D *mesh, vec3 ray_origin, vec3 ray_direction
     }
     mat4 ray_PV = _window_get_P_perspective(RAD(3)) * ray_V;
 
-    bool hit = false;
-    Tri tri = {};
-    vec3 w = {};
-    vec3 p = {};
+    IntersectionResult result = {};
     {
         static Texture texture = texture_create("fbo");
         static u32 fbo = _fbo_create(texture);
@@ -127,9 +118,9 @@ PickResult pick(IndexedTriangleMesh3D *mesh, vec3 ray_origin, vec3 ray_direction
             }
         }
         if (rgb[0] + rgb[1] + rgb[2] != 3 * 255) { // w, p
-            hit = true;
+            result.hit = true;
             int triangleIndex = rgb[0] + 256 * rgb[1] + 256 * 256 * rgb[2];
-            tri = triangle_indices[triangleIndex];
+            result.tri = triangle_indices[triangleIndex];
 
 
             glBindFramebuffer(GL_FRAMEBUFFER, fbo); {
@@ -141,9 +132,9 @@ PickResult pick(IndexedTriangleMesh3D *mesh, vec3 ray_origin, vec3 ray_direction
                     shader_set_uniform(&shader, "time", time);
                     shader_set_uniform(&shader, "IndexIfFalse_BarycentricWeightsIfTrue", true);
 
-                    vec3 _vertex_positions[] = { vertex_positions[tri[0]], vertex_positions[tri[1]], vertex_positions[tri[2]], };
-                    int4 _bone_indices[]     = {     bone_indices[tri[0]],     bone_indices[tri[1]],     bone_indices[tri[2]], };
-                    vec4 _bone_weights[]     = {     bone_weights[tri[0]],     bone_weights[tri[1]],     bone_weights[tri[2]], };
+                    vec3 _vertex_positions[] = { vertex_positions[result.tri[0]], vertex_positions[result.tri[1]], vertex_positions[result.tri[2]], };
+                    int4 _bone_indices[]     = {     bone_indices[result.tri[0]],     bone_indices[result.tri[1]],     bone_indices[result.tri[2]], };
+                    vec4 _bone_weights[]     = {     bone_weights[result.tri[0]],     bone_weights[result.tri[1]],     bone_weights[result.tri[2]], };
                     int3 _triangle_indices[] = { { 0, 1, 2, } };
                     shader_pass_vertex_attribute(&shader, 3, _vertex_positions);
                     shader_pass_vertex_attribute(&shader, 3, _bone_indices);
@@ -156,11 +147,11 @@ PickResult pick(IndexedTriangleMesh3D *mesh, vec3 ray_origin, vec3 ray_direction
                     _window_get_size(&width, &height);
                     glReadPixels(int(width / 2), int(height / 2), 1, 1, GL_RGB, GL_UNSIGNED_BYTE, rgb2);
                 }
-                for_(d, 3) w[d] = rgb2[d] / 255.0;
+                for_(d, 3) result.w[d] = rgb2[d] / 255.0;
 
             } glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-            p = mesh->_skin(tri, w);
+            result.p = mesh->_skin(result.tri, result.w);
 
             if (DEBUG) {
                 glDisable(GL_DEPTH_TEST);
@@ -169,7 +160,7 @@ PickResult pick(IndexedTriangleMesh3D *mesh, vec3 ray_origin, vec3 ray_direction
             }
         }
     }
-    return { hit, tri, w, p };
+    return result;
 } 
 
 void eg_fbo() {
@@ -195,11 +186,11 @@ void eg_fbo() {
             ray_direction = normalized(V3(1.0, a, b));
         }
 
-        PickResult pickResult = pick(&mesh, ray_origin, ray_direction);
+        IntersectionResult result = GPU_pick(ray_origin, ray_direction, &mesh);
 
         mesh.draw(P, V, globals.Identity);
         draw_pipe(P, V, ray_origin, ray_origin + 2.0 * ray_direction, monokai.yellow, 0.5);
-        if (pickResult.hit) draw_ball(P, V, pickResult.p);
+        if (result.hit) draw_ball(P, V, result.p);
     }
 }
 

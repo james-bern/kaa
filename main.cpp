@@ -22,6 +22,7 @@
 // port MIN, MAX, etc. to be functions
 
 #include "include.cpp"
+bool DRAGON = false;
 
 void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
 void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
@@ -38,32 +39,52 @@ void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real 
 
 #include "widget.cpp"
 
-struct RayTriangleIntersectionResult {
+struct IntersectionResult {
     bool hit;
-    real t;
+    vec3 p;
+    int3 tri;
     vec3 w;
+    real t; // _NOT_ set by GPU version of picking
 };
-
-RayTriangleIntersectionResult ray_triangle_intersection(vec3 o, vec3 dir, Tri tri, const SDVector &x) {
+IntersectionResult ray_triangle_intersection(vec3 ray_origin, vec3 ray_direction, Tri tri, const SDVector &x) {
     vec3 a = get(x, tri[0]);
     vec3 b = get(x, tri[1]);
     vec3 c = get(x, tri[2]);
     //                                          p = p          
-    // alpha * a + beta * b + gamma * c           = o + t * dir
-    // alpha * a + beta * b + gamma * c - t * dir = o          
-    //                            [ a b c -dir] w = o          
-    //                                        F w = o          
-    vec4 w__t = inverse(M4(a.x, b.x, c.x, -dir.x, a.y, b.y, c.y, -dir.y, a.z, b.z, c.z, -dir.z, 1.0, 1.0, 1.0, 0.0)) * V4(o.x, o.y, o.z, 1);
+    // alpha * a + beta * b + gamma * c           = ray_origin + t * ray_direction
+    // alpha * a + beta * b + gamma * c - t * ray_direction = ray_origin          
+    //                            [ a b c -ray_direction] w = ray_origin          
+    //                                        F w = ray_origin          
+    vec4 w__t = inverse(M4(a.x, b.x, c.x, -ray_direction.x, a.y, b.y, c.y, -ray_direction.y, a.z, b.z, c.z, -ray_direction.z, 1.0, 1.0, 1.0, 0.0)) * V4(ray_origin.x, ray_origin.y, ray_origin.z, 1);
     bool hit; {
         hit = true;
         for (int k = 0; k < 4; ++k) hit &= w__t[k] > -TINY_VAL;
     }
-    RayTriangleIntersectionResult result = {};
+    IntersectionResult result = {};
+    result.tri = tri; // ! (have to copy this over so it makes sense with the ray_mesh_intersection API)
     result.hit = hit;
-    for_(d, 3) result.w[d] = w__t[d];
-    result.t = w__t[3];
+    if (result.hit) {
+        for_(d, 3) result.w[d] = w__t[d];
+        result.t = w__t[3];
+        result.p = ray_origin + result.t * ray_direction;
+    }
     return result;
 }
+IntersectionResult ray_mesh_intersection(vec3 ray_origin, vec3 ray_direction, const SDVector &x, int num_triangles, int3 *triangle_indices) {
+    IntersectionResult result = {}; {
+        real min_t = INFINITY;
+        for_(triangle_i, num_triangles) {
+            Tri tri = triangle_indices[triangle_i];
+            IntersectionResult singleRayResult = ray_triangle_intersection(ray_origin, ray_direction, tri, x);
+            if (singleRayResult.hit && (singleRayResult.t < min_t)) {
+                min_t = singleRayResult.t;
+                result = singleRayResult;
+            }
+        }
+    }
+    return result;
+}
+
 
 #include "fbo.cpp"
 
@@ -113,6 +134,8 @@ const int  MESH_NUMBER_OF_NODE_LAYERS = 1 + _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EX
 ////////////////////////////////////////////////////////////////////////////////
 
 Sim sim;
+IndexedTriangleMesh3D dragonHead = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
+IndexedTriangleMesh3D dragonBody = _meshutil_indexed_triangle_mesh_load("body.obj", false, true, false);
 SDVector u_MAX;
 State currentState;
 #define MAX_NUM_FEATURE_POINTS 16
@@ -319,58 +342,39 @@ delegate bool cpp_castRay(
         int indexOfFeaturePointToSet,
         void *feature_point_positions__FLOAT3__ARRAY = NULL) {
 
-    vec3 o = { ray_origin_x, ray_origin_y, ray_origin_z };
-    vec3 dir = { ray_direction_x, ray_direction_y, ray_direction_z };
-
-    bool hitTheMesh = false;
-    double min_t = INFINITY;
-    {
-        for_(triangle_i, sim.num_triangles) {
-            Tri tri = sim.triangle_indices[triangle_i];
-            RayTriangleIntersectionResult result = ray_triangle_intersection(o, dir, tri, currentState.x);
-            if (result.hit) {
-                hitTheMesh = true;
-                if (result.t < min_t) {
-                    min_t = result.t;
-
-                    // FORNOW: potentially writes multiple times (up to once for each triangle intersected)
-                    if (pleaseSetFeaturePoint) {
-                        ASSERT(indexOfFeaturePointToSet >= 0);
-                        ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
-                        featurePoints[indexOfFeaturePointToSet] = { { { tri[0], result.w[0] }, { tri[1], result.w[1] }, { tri[2], result.w[2] } } };
-                        if (feature_point_positions__FLOAT3__ARRAY) {
-                            vec3 tmp = get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
-                            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
-                        }
-                    }
-                }
-            }
+    vec3 ray_origin = { ray_origin_x, ray_origin_y, ray_origin_z };
+    vec3 ray_direction = { ray_direction_x, ray_direction_y, ray_direction_z };
+    IntersectionResult result;
+    if (DRAGON) {
+        result = GPU_pick(ray_origin, ray_direction, &dragonBody);
+    } else {
+        result = ray_mesh_intersection(ray_origin, ray_direction, currentState.x, sim.num_triangles, sim.triangle_indices);
+    }
+    if (result.hit) for_(d, 3) (((float *) intersection_position__FLOAT_ARRAY__LENGTH_3)[d]) = float(result.p[d]);
+    if (pleaseSetFeaturePoint) {
+        ASSERT(indexOfFeaturePointToSet >= 0);
+        ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
+        featurePoints[indexOfFeaturePointToSet] = { { { result.tri[0], result.w[0] }, { result.tri[1], result.w[1] }, { result.tri[2], result.w[2] } } };
+        if (feature_point_positions__FLOAT3__ARRAY) {
+            vec3 tmp = get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
+            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
         }
     }
 
-    if (hitTheMesh) {
-        vec3 intersection_position = o + min_t * dir;
-        for_(d, 3) (((float *) intersection_position__FLOAT_ARRAY__LENGTH_3)[d]) = float(intersection_position[d]);
-    }
-
-    return hitTheMesh;
+    return result.hit;
 }
 
 // solves one step of IK (and physics)
 // writes resulting mesh to vertex_positions__FLOAT3_ARRAY, vertex_normals__FLOAT3_ARRAY, triangle_indices__UINT_ARRAY
 // also writes feature_point_positions__FLOAT3__ARRAY for use by unity
-// returns whether the optimization has converged (norm(gradient) < CONVERGENCE_TOLERANCE)
-delegate bool cpp_solve(
+delegate void cpp_solve(
         int num_feature_points,
         void *_targetEnabled__INT_ARRAY,
         void *_targetPositions__FLOAT3_ARRAY,
         void *vertex_positions__FLOAT3_ARRAY,
         void *vertex_normals__FLOAT3_ARRAY,
         void *triangle_indices__UINT_ARRAY,
-        void *feature_point_positions__FLOAT3__ARRAY,
-        real CONVERGENCE_TOLERANCE = 0.15)
-{
-
+        void *feature_point_positions__FLOAT3__ARRAY) {
     ASSERT(num_feature_points <= MAX_NUM_FEATURE_POINTS);
     int *targetEnabled = (int *) _targetEnabled__INT_ARRAY;
     vec3 targetPositions[MAX_NUM_FEATURE_POINTS]; {
@@ -383,7 +387,6 @@ delegate bool cpp_solve(
         for_(i, MAX_NUM_FEATURE_POINTS) relax &= (!targetEnabled[i]);
     }
 
-    bool result__converged;
     { // step ik
         static real Q_c      = 1.0;
         static real R_c_log  = 0.0036;
@@ -484,7 +487,6 @@ delegate bool cpp_solve(
                     for_(j, LEN_U) if (_isnan(dOdu[j])) dOdu[j] = 0; // FORNOW
                 }
             }
-            result__converged = norm(dOdu) < CONVERGENCE_TOLERANCE;
             {
                 real O_curr = get_O(currentState);
                 State nextState = currentState;
@@ -514,8 +516,6 @@ delegate bool cpp_solve(
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * i + d] = float(tmp[d]);
         }
     }
-
-    return result__converged;
 }
 
 vec3 SPOOF_targetPositions[MAX_NUM_FEATURE_POINTS];
@@ -589,7 +589,7 @@ void kaa() {
                     for_(k, _COUNT_OF(_SPOOF_target_positions__FLOAT_ARRAY)) _SPOOF_target_positions__FLOAT_ARRAY[k] = float(((real *) SPOOF_targetPositions)[k]);
                 }
 
-                bool converged = cpp_solve(
+                cpp_solve(
                         MAX_NUM_FEATURE_POINTS,
                         SPOOF_targetEnabled,
                         _SPOOF_target_positions__FLOAT_ARRAY,
@@ -597,61 +597,17 @@ void kaa() {
                         SPOOF_vertex_normals,
                         SPOOF_triangle_indices,
                         SPOOF_feature_point_positions);
-                gui_readout("converged", &converged);
             }
         }
 
-        { // widget
-            bool mouseClickConsumed = false;
-            bool mouseHotConsumed = false;
-            { // SPOOF_targetPositions
-
-                for_(featurePointIndex, MAX_NUM_FEATURE_POINTS) {
-                    if (!SPOOF_targetEnabled[featurePointIndex]) continue;
-                    vec3 color = color_kelly(featurePointIndex);
-                    vec3 SPOOF_feature_point_position = { SPOOF_feature_point_positions[3 * featurePointIndex + 0], SPOOF_feature_point_positions[3 * featurePointIndex + 1], SPOOF_feature_point_positions[3 * featurePointIndex + 2] };
-
-                    WidgetResult widgetResult = widget(P, V, featurePointIndex, &SPOOF_targetPositions[featurePointIndex], SPOOF_feature_point_position, color);
-
-                    mouseClickConsumed |= widgetResult.mouseClickConsumed; // FORNOW
-                    mouseHotConsumed |= widgetResult.mouseHotConsumed; // FORNOW
-                    if (widgetResult.pleaseDisableHandle) {
-                        SPOOF_targetEnabled[featurePointIndex] = FALSE;
-                    }
-                    if (widgetResult.recastFeaturePoint) {
-                        castRay(true, featurePointIndex);
-                    }
-                }
-
-            }
 
 
-            if (!mouseClickConsumed && !mouseHotConsumed) { // SPOOF_intersection_position
-
-                bool pleaseSetFeaturePoint = globals.mouse_left_pressed;
-                int featurePointIndex; {
-                    for (featurePointIndex = 0; SPOOF_targetEnabled[featurePointIndex]; ++featurePointIndex) {}
-                    ASSERT(featurePointIndex < MAX_NUM_FEATURE_POINTS);
-                }
-
-                CastRayResult castRayResult = castRay(pleaseSetFeaturePoint, featurePointIndex);
-
-                if (!globals.mouse_left_held && castRayResult.intersects) draw_sphere(castRayResult.intersection_position, color_kelly(featurePointIndex));
-
-                if (castRayResult.intersects && pleaseSetFeaturePoint) {
-                    SPOOF_targetEnabled[featurePointIndex] = TRUE;
-                    SPOOF_targetPositions[featurePointIndex] = castRayResult.intersection_position;
-                }
-
-            }
-        }
 
         { // draw scene
             static int tabs = 0;
             if (globals.key_pressed[COW_KEY_TAB]) ++tabs;
-            static bool dragon;
-            gui_checkbox("dragon", &dragon, 'd');
-            if (!dragon) {
+            gui_checkbox("DRAGON", &DRAGON, 'd');
+            if (!DRAGON) {
                 {
                     if (tabs % 3 == 0) {
                         sim.draw(P, V, M4_Identity(), &currentState);
@@ -673,12 +629,10 @@ void kaa() {
                     }
                 }
             } else { // skinning
-                static IndexedTriangleMesh3D head = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
-                static IndexedTriangleMesh3D body = _meshutil_indexed_triangle_mesh_load("body.obj", false, true, false);
                 do_once {
                     mat4 RS = M4_RotationAboutXAxis(PI / 2) * M4_Scaling(0.05);
-                    head._applyTransform(RS);
-                    body._applyTransform(M4_Translation(0.0, -0.67, 0.0) * RS);
+                    dragonHead._applyTransform(RS);
+                    dragonBody._applyTransform(M4_Translation(0.0, -0.67, 0.0) * RS);
                 };
 
                 const int NUM_BONES = MESH_NUMBER_OF_NODE_LAYERS - 1;
@@ -703,52 +657,52 @@ void kaa() {
                     }
                 }
 
-                { // head
+                { // dragonHead
                     vec3 y = -boneNegativeYAxis[NUM_BONES - 1];
                     vec3 up = { 0.0, 1.0, 0.0 }; 
                     vec3 x = normalized(cross(y, up));
                     vec3 z = cross(x, y);
                     vec3 o = boneOrigins[NUM_BONES];
-                    head.draw(P, V, M4_xyzo(x, y, z, o));
+                    dragonHead.draw(P, V, M4_xyzo(x, y, z, o));
                 }
 
-                { // body
+                { // dragonBody
                     do_once {
-                        body.num_bones = NUM_BONES;
-                        body.bones = (mat4 *) malloc(NUM_BONES * sizeof(mat4));
-                        body.bone_indices = (int4 *) malloc(body.num_vertices * sizeof(int4));
-                        body.bone_weights = (vec4 *) malloc(body.num_vertices * sizeof(vec4));
+                        dragonBody.num_bones = NUM_BONES;
+                        dragonBody.bones = (mat4 *) malloc(NUM_BONES * sizeof(mat4));
+                        dragonBody.bone_indices = (int4 *) malloc(dragonBody.num_vertices * sizeof(int4));
+                        dragonBody.bone_weights = (vec4 *) malloc(dragonBody.num_vertices * sizeof(vec4));
 
                         // assign weights FORNOW hacky nonsense
-                        for_(vertex_i, body.num_vertices) {
+                        for_(vertex_i, dragonBody.num_vertices) {
                             auto f = [&](int i) {
                                 real c = AVG(boneOriginsRest[i].y, boneOriginsRest[i + 1].y);
-                                real D = ABS(body.vertex_positions[vertex_i].y - c);
+                                real D = ABS(dragonBody.vertex_positions[vertex_i].y - c);
                                 return MAX(0.0, (1.0 / D) - 10.0);
                             };
 
-                            real t = INVERSE_LERP(body.vertex_positions[vertex_i].y, 0.0, -ROBOT_LENGTH);
-                            real b = t * body.num_bones;
+                            real t = INVERSE_LERP(dragonBody.vertex_positions[vertex_i].y, 0.0, -ROBOT_LENGTH);
+                            real b = t * dragonBody.num_bones;
 
-                            int j = MIN(MAX(int(b + 0.5), 0), body.num_bones - 1);
+                            int j = MIN(MAX(int(b + 0.5), 0), dragonBody.num_bones - 1);
                             int i = MAX(0, j - 1);
-                            int k = MIN(body.num_bones - 1, j + 1);
+                            int k = MIN(dragonBody.num_bones - 1, j + 1);
 
-                            body.bone_indices[vertex_i] = { i, j, k };
-                            body.bone_weights[vertex_i] = { f(i), f(j), f(k) };
-                            body.bone_weights[vertex_i] /= sum(body.bone_weights[vertex_i]);
+                            dragonBody.bone_indices[vertex_i] = { i, j, k };
+                            dragonBody.bone_weights[vertex_i] = { f(i), f(j), f(k) };
+                            dragonBody.bone_weights[vertex_i] /= sum(dragonBody.bone_weights[vertex_i]);
                         }
                     };
-                    for_(bone_i, body.num_bones) {
+                    for_(bone_i, dragonBody.num_bones) {
                         vec3 y = -boneNegativeYAxis[bone_i];
                         vec3 x = bonePositiveXAxis[bone_i];
                         vec3 z = cross(x, y);
                         mat4 invBind = M4_Translation(-boneOriginsRest[bone_i]);
                         mat4 Bone = M4_xyzo(x, y, z, boneOrigins[bone_i]);
-                        body.bones[bone_i] = Bone * invBind;
+                        dragonBody.bones[bone_i] = Bone * invBind;
                         library.soups.axes.draw(PV * Bone * M4_Scaling(0.08));
                     }
-                    body.draw(P, V, globals.Identity);
+                    dragonBody.draw(P, V, globals.Identity);
                 }
             }
 
@@ -769,10 +723,48 @@ void kaa() {
         }
 
 
-        { // fornow
-            if (globals.key_held['a']) SPOOF_targetPositions[0] = transformPoint(M4_RotationAboutYAxis(RAD(1)), SPOOF_targetPositions[0]);
+        { // widget
+            bool mouseClickConsumed = false;
+            bool mouseHotConsumed = false;
+            { // SPOOF_targetPositions
+                for_(featurePointIndex, MAX_NUM_FEATURE_POINTS) {
+                    if (!SPOOF_targetEnabled[featurePointIndex]) continue;
+                    vec3 color = color_kelly(featurePointIndex);
+                    vec3 SPOOF_feature_point_position = { SPOOF_feature_point_positions[3 * featurePointIndex + 0], SPOOF_feature_point_positions[3 * featurePointIndex + 1], SPOOF_feature_point_positions[3 * featurePointIndex + 2] };
+
+                    WidgetResult widgetResult = widget(P, V, featurePointIndex, &SPOOF_targetPositions[featurePointIndex], SPOOF_feature_point_position, color);
+
+                    mouseClickConsumed |= widgetResult.mouseClickConsumed; // FORNOW
+                    mouseHotConsumed |= widgetResult.mouseHotConsumed; // FORNOW
+                    if (widgetResult.pleaseDisableHandle) {
+                        SPOOF_targetEnabled[featurePointIndex] = FALSE;
+                    }
+                    if (widgetResult.recastFeaturePoint) {
+                        castRay(true, featurePointIndex);
+                    }
+                }
+            }
+
+
+            if (!mouseClickConsumed && !mouseHotConsumed) { // SPOOF_intersection_position
+                bool pleaseSetFeaturePoint = globals.mouse_left_pressed;
+                int featurePointIndex; {
+                    for (featurePointIndex = 0; SPOOF_targetEnabled[featurePointIndex]; ++featurePointIndex) {}
+                    ASSERT(featurePointIndex < MAX_NUM_FEATURE_POINTS);
+                }
+                CastRayResult castRayResult = castRay(pleaseSetFeaturePoint, featurePointIndex);
+                if (!globals.mouse_left_held && castRayResult.intersects) draw_sphere(castRayResult.intersection_position, color_kelly(featurePointIndex));
+                if (castRayResult.intersects && pleaseSetFeaturePoint) {
+                    SPOOF_targetEnabled[featurePointIndex] = TRUE;
+                    SPOOF_targetPositions[featurePointIndex] = castRayResult.intersection_position;
+                }
+            }
         }
 
+
+        { // keyboard input
+            if (globals.key_held['a']) SPOOF_targetPositions[0] = transformPoint(M4_RotationAboutYAxis(RAD(1)), SPOOF_targetPositions[0]);
+        }
 
         if (1) { // manual sliders
             for_(j, sim.num_cables) {
@@ -781,8 +773,6 @@ void kaa() {
                 gui_slider(buffer, &currentState.u[j], -(ROBOT_LENGTH / 3), (ROBOT_LENGTH / 3));
             }
         }
-
-
 
         { // FORNOW automated testing
             if (AUTOMATED_SPEED_TEST__QUITS_AFTER_A_COUPLE_SECONDS) {
@@ -805,8 +795,8 @@ void kaa() {
 void main() {
     omp_set_num_threads(6);
     APPS {
+        // APP(eg_fbo);
         APP(kaa);
-        APP(eg_fbo);
         // APP(jones);
     }
 }
