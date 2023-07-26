@@ -24,7 +24,7 @@
 // port MIN, MAX, etc. to be functions
 
 #include "include.cpp"
-bool DRAGON = true;
+bool DRAGON = false;
 
 void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
 void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
@@ -91,22 +91,6 @@ IntersectionResult ray_mesh_intersection(vec3 ray_origin, vec3 ray_direction, co
 #include "fbo.cpp"
 
 
-
-
-
-// bones
-
-
-// C++
-// - IK
-
-// C#
-// - controllers
-// - draw
-// -- (GPU)
-// --- "skinning" - vertex shader
-
-
 bool AUTOMATED_SPEED_TEST__QUITS_AFTER_A_COUPLE_SECONDS = false;
 
 const int  MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT = 3;
@@ -129,6 +113,8 @@ const int  MESH_NUMBER_OF_NODES_PER_NODE_LAYER = 1 + MESH_NUMBER_OF_ANGULAR_SECT
 const int  _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EXCLUSIVE = ROBOT_NUMBER_OF_UPPER_SEGMENTS * MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_UPPER_SEGMENT;
 const int  _MESH_NUMBER_OF_LOWER_NODE_LAYERS_EXCLUSIVE = ROBOT_NUMBER_OF_LOWER_SEGMENTS * MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT;
 const int  MESH_NUMBER_OF_NODE_LAYERS = 1 + _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EXCLUSIVE + _MESH_NUMBER_OF_LOWER_NODE_LAYERS_EXCLUSIVE + (INCLUDE_DUMMY_SEGMENT ? 1 : 0);
+const int DRAGON_NUM_BONES = MESH_NUMBER_OF_NODE_LAYERS - 1;
+vec3 boneOriginsRest      [DRAGON_NUM_BONES + 1];
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -136,8 +122,8 @@ const int  MESH_NUMBER_OF_NODE_LAYERS = 1 + _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EX
 ////////////////////////////////////////////////////////////////////////////////
 
 Sim sim;
-IndexedTriangleMesh3D _dragonHead = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
-IndexedTriangleMesh3D dragonBody = _meshutil_indexed_triangle_mesh_load("body.obj", false, true, false);
+IndexedTriangleMesh3D _dragonHead;
+IndexedTriangleMesh3D dragonBody;
 SDVector u_MAX;
 State currentState;
 #define MAX_NUM_FEATURE_POINTS 16
@@ -278,6 +264,46 @@ delegate void cpp_init() {
     currentState = State(&sim);
     currentState.enabled__BIT_FIELD = TETS | GRAVITY | PINS | CABLES;
     sim.getNext(&currentState); // FORNOW: global_U_xx
+
+    do_once {
+        mat4 RS = M4_RotationAboutXAxis(PI / 2) * M4_Scaling(0.05);
+        _dragonHead = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
+        _dragonHead._applyTransform(RS);
+        dragonBody = _meshutil_indexed_triangle_mesh_load("body.obj", false, true, false);
+        dragonBody._applyTransform(M4_Translation(0.0, -0.67, 0.0) * RS);
+    };
+
+    do_once {
+        dragonBody.num_bones = DRAGON_NUM_BONES;
+        dragonBody.bones = (mat4 *) malloc(DRAGON_NUM_BONES * sizeof(mat4));
+        dragonBody.bone_indices = (int4 *) malloc(dragonBody.num_vertices * sizeof(int4));
+        dragonBody.bone_weights = (vec4 *) malloc(dragonBody.num_vertices * sizeof(vec4));
+
+        for_(j, _COUNT_OF(boneOriginsRest)) {
+            boneOriginsRest[j] = get(sim.x_rest, 9 + j * 10); // FORNOW here
+        }
+
+        // assign weights FORNOW hacky nonsense
+        for_(vertex_i, dragonBody.num_vertices) {
+            auto f = [&](int i) {
+                real c = AVG(boneOriginsRest[i].y, boneOriginsRest[i + 1].y);
+                real D = ABS(dragonBody.vertex_positions[vertex_i].y - c);
+                return MAX(0.0, (1.0 / D) - 10.0);
+            };
+
+            real t = INVERSE_LERP(dragonBody.vertex_positions[vertex_i].y, 0.0, -ROBOT_LENGTH);
+            real b = t * dragonBody.num_bones;
+
+            int j = MIN(MAX(int(b + 0.5), 0), dragonBody.num_bones - 1);
+            int i = MAX(0, j - 1);
+            int k = MIN(dragonBody.num_bones - 1, j + 1);
+
+            dragonBody.bone_indices[vertex_i] = { i, j, k };
+            dragonBody.bone_weights[vertex_i] = { f(i), f(j), f(k) };
+            dragonBody.bone_weights[vertex_i] /= sum(dragonBody.bone_weights[vertex_i]);
+        }
+    };
+
     cpp_reset();
 }
 
@@ -325,14 +351,6 @@ void jones() {
 }
 
 
-Vec get(vec3 *x, Via I) {
-    Vec result = {};
-    for_(ii, SOFT_ROBOT_DIM + 1) {
-        result += I[ii].weight * x[I[ii].index];
-    }
-    return result;
-}
-
 // returns whether the ray hit the mesh
 // if the ray hit the mesh, functions writes to intersection_position__FLOAT_ARRAY__LENGTH_3
 // if the ray hit the mesh and pleaseSetFeaturePoint, updates indexOfFeaturePointToSet-th feature point in C++
@@ -364,13 +382,23 @@ delegate bool cpp_castRay(
         ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
         featurePoints[indexOfFeaturePointToSet] = { { { result.tri[0], result.w[0] }, { result.tri[1], result.w[1] }, { result.tri[2], result.w[2] } } };
         if (feature_point_positions__FLOAT3__ARRAY) {
-            vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[indexOfFeaturePointToSet]) : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
-            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
+            // vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[indexOfFeaturePointToSet]) : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
+            // for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
+            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(result.p[d]);
         }
     }
 
     return result.hit;
 }
+
+
+// TODO: Why is Via 4D? is this a problem?
+vec3 _FORNOW_skin(IndexedTriangleMesh3D *mesh, Via via ) {
+    int3 tri = { via.data[0].index, via.data[1].index, via.data[2].index, };
+    vec3 w = { via.data[0].weight, via.data[1].weight, via.data[2].weight, };
+    return mesh->_skin(tri, w);
+}
+
 
 // solves one step of IK (and physics)
 // writes resulting mesh to vertex_positions__FLOAT3_ARRAY, vertex_normals__FLOAT3_ARRAY, triangle_indices__UINT_ARRAY
@@ -422,7 +450,10 @@ delegate void cpp_solve(
                 return _R_c_RELAX * (0.5 * squaredNorm(u));
             } else {
                 real Q = 0.0; {
-                    for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) Q += Q_c * .5 * squaredNorm(get(x, featurePoints[i]) - targetPositions[i]);
+                    for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
+                        vec3 p = (DRAGON) ? _FORNOW_skin(&dragonBody, featurePoints[i]) : get(x, featurePoints[i]);
+                        Q += Q_c * .5 * squaredNorm(p - targetPositions[i]);
+                    }
                 }
 
                 real R = 0.0; {
@@ -439,7 +470,6 @@ delegate void cpp_solve(
                     for_(j, LEN_U) {
                         S += ZCQ(S_c, S_eps - Deltas[j]);
                     }
-
                 }
 
                 real result = Q + R + S;
@@ -470,7 +500,13 @@ delegate void cpp_solve(
                 } else {
                     SDVector dQdu; {
                         SDVector dQdx(LEN_X); {
-                            for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) add(dQdx, featurePoints[i], Q_c * get(x, featurePoints[i]) - targetPositions[i]);
+                            for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
+                                if (DRAGON) {
+                                    // TODO
+                                } else {
+                                    add(dQdx, featurePoints[i], Q_c * get(x, featurePoints[i]) - targetPositions[i]);
+                                }
+                            }
                         }
                         SDVector L = global_U_xx.solve(dQdx);
                         dQdu = L * global_dFdu;
@@ -519,9 +555,42 @@ delegate void cpp_solve(
             ((UnityVertexAttributeFloat *) vertex_normals__FLOAT3_ARRAY)[k] = UnityVertexAttributeFloat(vertex_normals[k]);
         }
         for_(k, 3 * sim.num_triangles) ((UnityTriangleIndexInt *) triangle_indices__UINT_ARRAY)[k] = (UnityTriangleIndexInt) ((int *) sim.triangle_indices)[k];
-        for_(i, num_feature_points) {
-            vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[i]) : get(currentState.x, featurePoints[i]);
-            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * i + d] = float(tmp[d]);
+        for_(indexOfFeaturePointToSet, num_feature_points) {
+            vec3 tmp = (DRAGON)
+                ? _FORNOW_skin(&dragonBody, featurePoints[indexOfFeaturePointToSet])
+                : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
+            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
+        }
+    }
+
+    { // update bones off of currentState.x
+        vec3 boneOrigins[DRAGON_NUM_BONES + 1];
+        vec3 boneNegativeYAxis[DRAGON_NUM_BONES];
+        vec3 bonePositiveXAxis[DRAGON_NUM_BONES];
+        {
+            vec3 boneXAxisFeaturePoint[DRAGON_NUM_BONES + 1]; {
+                for_(j, _COUNT_OF(boneOrigins)) {
+                    boneOrigins              [j] = get(currentState.x, 9 + j * 10);
+                    boneXAxisFeaturePoint    [j] = get(currentState.x, 0 + j * 10);
+                }
+            }
+            {
+                for_(j, _COUNT_OF(boneNegativeYAxis)) {
+                    boneNegativeYAxis[j] = normalized(boneOrigins[j + 1] - boneOrigins[j]);
+                    bonePositiveXAxis[j] = normalized(boneXAxisFeaturePoint[j] - boneOrigins[j]);
+                }
+            }
+        }
+
+        { // dragonBody
+            for_(bone_i, dragonBody.num_bones) {
+                vec3 y = -boneNegativeYAxis[bone_i];
+                vec3 x = bonePositiveXAxis[bone_i];
+                vec3 z = cross(x, y);
+                mat4 invBind = M4_Translation(-boneOriginsRest[bone_i]);
+                mat4 Bone = M4_xyzo(x, y, z, boneOrigins[bone_i]);
+                dragonBody.bones[bone_i] = Bone * invBind;
+            }
         }
     }
 }
@@ -609,6 +678,7 @@ void kaa() {
         }
 
 
+        // TODO: take a day or two and work on core visualization functions (wireframe, transparent wireframe, etc.)
 
 
         { // draw scene
@@ -637,83 +707,20 @@ void kaa() {
                     }
                 }
             } else { // skinning
-                do_once {
-                    mat4 RS = M4_RotationAboutXAxis(PI / 2) * M4_Scaling(0.05);
-                    _dragonHead._applyTransform(RS);
-                    dragonBody._applyTransform(M4_Translation(0.0, -0.67, 0.0) * RS);
-                };
 
-                const int NUM_BONES = MESH_NUMBER_OF_NODE_LAYERS - 1;
 
-                vec3 boneOrigins          [NUM_BONES + 1];
-                vec3 boneOriginsRest      [NUM_BONES + 1];
-                vec3 boneXAxisFeaturePoint[NUM_BONES + 1];
-                {
-                    for_(j, _COUNT_OF(boneOrigins)) {
-                        boneOrigins              [j] = get(currentState.x, 9 + j * 10);
-                        boneOriginsRest          [j] = get(sim.x_rest    , 9 + j * 10);
-                        boneXAxisFeaturePoint    [j] = get(currentState.x, 0 + j * 10);
-                    }
-                }
+                dragonBody.draw(P, V, globals.Identity);
 
-                vec3 boneNegativeYAxis[NUM_BONES];
-                vec3 bonePositiveXAxis[NUM_BONES];
-                {
-                    for_(j, _COUNT_OF(boneNegativeYAxis)) {
-                        boneNegativeYAxis[j] = normalized(boneOrigins[j + 1] - boneOrigins[j]);
-                        bonePositiveXAxis[j] = normalized(boneXAxisFeaturePoint[j] - boneOrigins[j]);
-                    }
-                }
-
-                { // _dragonHead
-                    // TODO: make less hacky
-                    vec3 y = -boneNegativeYAxis[NUM_BONES - 1];
-                    vec3 up = { 0.0, 1.0, 0.0 }; 
-                    vec3 x = cross(y, up);
-                    x = (IS_ZERO(squaredNorm(x)) ? V3(1.0, 0.0, 0.0) : normalized(x));
-                    vec3 z = cross(x, y);
-                    vec3 o = boneOrigins[NUM_BONES];
-                    _dragonHead.draw(P, V, M4_xyzo(x, y, z, o));
-                }
-
-                { // dragonBody
-                    do_once {
-                        dragonBody.num_bones = NUM_BONES;
-                        dragonBody.bones = (mat4 *) malloc(NUM_BONES * sizeof(mat4));
-                        dragonBody.bone_indices = (int4 *) malloc(dragonBody.num_vertices * sizeof(int4));
-                        dragonBody.bone_weights = (vec4 *) malloc(dragonBody.num_vertices * sizeof(vec4));
-
-                        // assign weights FORNOW hacky nonsense
-                        for_(vertex_i, dragonBody.num_vertices) {
-                            auto f = [&](int i) {
-                                real c = AVG(boneOriginsRest[i].y, boneOriginsRest[i + 1].y);
-                                real D = ABS(dragonBody.vertex_positions[vertex_i].y - c);
-                                return MAX(0.0, (1.0 / D) - 10.0);
-                            };
-
-                            real t = INVERSE_LERP(dragonBody.vertex_positions[vertex_i].y, 0.0, -ROBOT_LENGTH);
-                            real b = t * dragonBody.num_bones;
-
-                            int j = MIN(MAX(int(b + 0.5), 0), dragonBody.num_bones - 1);
-                            int i = MAX(0, j - 1);
-                            int k = MIN(dragonBody.num_bones - 1, j + 1);
-
-                            dragonBody.bone_indices[vertex_i] = { i, j, k };
-                            dragonBody.bone_weights[vertex_i] = { f(i), f(j), f(k) };
-                            dragonBody.bone_weights[vertex_i] /= sum(dragonBody.bone_weights[vertex_i]);
-                        }
-                    };
-                    for_(bone_i, dragonBody.num_bones) {
-                        vec3 y = -boneNegativeYAxis[bone_i];
-                        vec3 x = bonePositiveXAxis[bone_i];
-                        vec3 z = cross(x, y);
-                        mat4 invBind = M4_Translation(-boneOriginsRest[bone_i]);
-                        mat4 Bone = M4_xyzo(x, y, z, boneOrigins[bone_i]);
-                        dragonBody.bones[bone_i] = Bone * invBind;
-                        // library.soups.axes.draw(PV * Bone * M4_Scaling(0.08));
-                    }
-                    dragonBody.draw(P, V, globals.Identity);
-                }
+                // { // _dragonHead
+                //     // FORNOW: hacky, with few dependencies
+                //     vec3 y = normalized(boneOrigins[DRAGON_NUM_BONES - 1] - boneOrigins[DRAGON_NUM_BONES]);
+                //     vec3 up = { 0.0, 1.0, 0.0 }; 
+                //     vec3 x = cross(y, up);
+                //     x = (IS_ZERO(squaredNorm(x)) ? V3(1.0, 0.0, 0.0) : normalized(x));
+                //     vec3 z = cross(x, y);
+                //     vec3 o = boneOrigins[DRAGON_NUM_BONES];
+                //     _dragonHead.draw(P, V, M4_xyzo(x, y, z, o));
+                // }
             }
 
             { // ceiling
