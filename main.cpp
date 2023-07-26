@@ -649,8 +649,6 @@ void kaa() {
         mat4 PV = P * V;
 
 
-        auto draw_sphere = [&](vec3 s, vec3 color = monokai.white) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(0.01), color); };
-
         struct CastRayResult {
             bool intersects;
             vec3 intersection_position;
@@ -764,7 +762,6 @@ void kaa() {
             }
         }
 
-
         { // widget
             bool mouseClickConsumed = false;
             bool mouseHotConsumed = false;
@@ -795,7 +792,7 @@ void kaa() {
                     ASSERT(featurePointIndex < MAX_NUM_FEATURE_POINTS);
                 }
                 CastRayResult castRayResult = castRay(pleaseSetFeaturePoint, featurePointIndex);
-                if (!globals.mouse_left_held && castRayResult.intersects) draw_sphere(castRayResult.intersection_position, color_kelly(featurePointIndex));
+                if (!globals.mouse_left_held && castRayResult.intersects) draw_ball(P, V, castRayResult.intersection_position, color_kelly(featurePointIndex));
                 if (castRayResult.intersects && pleaseSetFeaturePoint) {
                     SPOOF_targetEnabled[featurePointIndex] = TRUE;
                     SPOOF_targetPositions[featurePointIndex] = castRayResult.intersection_position;
