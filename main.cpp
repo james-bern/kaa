@@ -24,7 +24,7 @@
 // port MIN, MAX, etc. to be functions
 
 #include "include.cpp"
-bool DRAGON = false;
+bool DRAGON = true;
 
 void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
 void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
@@ -136,7 +136,7 @@ const int  MESH_NUMBER_OF_NODE_LAYERS = 1 + _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EX
 ////////////////////////////////////////////////////////////////////////////////
 
 Sim sim;
-IndexedTriangleMesh3D dragonHead = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
+IndexedTriangleMesh3D _dragonHead = _meshutil_indexed_triangle_mesh_load("head.obj", false, true, false);
 IndexedTriangleMesh3D dragonBody = _meshutil_indexed_triangle_mesh_load("body.obj", false, true, false);
 SDVector u_MAX;
 State currentState;
@@ -277,9 +277,7 @@ delegate void cpp_init() {
     }
     currentState = State(&sim);
     currentState.enabled__BIT_FIELD = TETS | GRAVITY | PINS | CABLES;
-
     sim.getNext(&currentState); // FORNOW: global_U_xx
-
     cpp_reset();
 }
 
@@ -327,6 +325,13 @@ void jones() {
 }
 
 
+Vec get(vec3 *x, Via I) {
+    Vec result = {};
+    for_(ii, SOFT_ROBOT_DIM + 1) {
+        result += I[ii].weight * x[I[ii].index];
+    }
+    return result;
+}
 
 // returns whether the ray hit the mesh
 // if the ray hit the mesh, functions writes to intersection_position__FLOAT_ARRAY__LENGTH_3
@@ -346,11 +351,12 @@ delegate bool cpp_castRay(
 
     vec3 ray_origin = { ray_origin_x, ray_origin_y, ray_origin_z };
     vec3 ray_direction = { ray_direction_x, ray_direction_y, ray_direction_z };
-    IntersectionResult result;
-    if (DRAGON) {
-        result = GPU_pick(ray_origin, ray_direction, &dragonBody);
-    } else {
-        result = ray_mesh_intersection(ray_origin, ray_direction, currentState.x, sim.num_triangles, sim.triangle_indices);
+    IntersectionResult result; {
+        if (DRAGON) {
+            result = GPU_pick(ray_origin, ray_direction, &dragonBody);
+        } else {
+            result = ray_mesh_intersection(ray_origin, ray_direction, currentState.x, sim.num_triangles, sim.triangle_indices);
+        }
     }
     if (result.hit) for_(d, 3) (((float *) intersection_position__FLOAT_ARRAY__LENGTH_3)[d]) = float(result.p[d]);
     if (pleaseSetFeaturePoint) {
@@ -358,7 +364,7 @@ delegate bool cpp_castRay(
         ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
         featurePoints[indexOfFeaturePointToSet] = { { { result.tri[0], result.w[0] }, { result.tri[1], result.w[1] }, { result.tri[2], result.w[2] } } };
         if (feature_point_positions__FLOAT3__ARRAY) {
-            vec3 tmp = get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
+            vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[indexOfFeaturePointToSet]) : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
         }
     }
@@ -442,7 +448,7 @@ delegate void cpp_solve(
             }
         };
 
-        { // single gradient descent step with backtracking line search
+        if (!DRAGON) { // single gradient descent step with backtracking line search
             SDVector dOdu(LEN_U);
             SDVector &u = currentState.u;
             const SDVector &x = currentState.x;
@@ -514,7 +520,7 @@ delegate void cpp_solve(
         }
         for_(k, 3 * sim.num_triangles) ((UnityTriangleIndexInt *) triangle_indices__UINT_ARRAY)[k] = (UnityTriangleIndexInt) ((int *) sim.triangle_indices)[k];
         for_(i, num_feature_points) {
-            vec3 tmp = get(currentState.x, featurePoints[i]);
+            vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[i]) : get(currentState.x, featurePoints[i]);
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * i + d] = float(tmp[d]);
         }
     }
@@ -633,7 +639,7 @@ void kaa() {
             } else { // skinning
                 do_once {
                     mat4 RS = M4_RotationAboutXAxis(PI / 2) * M4_Scaling(0.05);
-                    dragonHead._applyTransform(RS);
+                    _dragonHead._applyTransform(RS);
                     dragonBody._applyTransform(M4_Translation(0.0, -0.67, 0.0) * RS);
                 };
 
@@ -659,13 +665,15 @@ void kaa() {
                     }
                 }
 
-                { // dragonHead
+                { // _dragonHead
+                    // TODO: make less hacky
                     vec3 y = -boneNegativeYAxis[NUM_BONES - 1];
                     vec3 up = { 0.0, 1.0, 0.0 }; 
-                    vec3 x = normalized(cross(y, up));
+                    vec3 x = cross(y, up);
+                    x = (IS_ZERO(squaredNorm(x)) ? V3(1.0, 0.0, 0.0) : normalized(x));
                     vec3 z = cross(x, y);
                     vec3 o = boneOrigins[NUM_BONES];
-                    dragonHead.draw(P, V, M4_xyzo(x, y, z, o));
+                    _dragonHead.draw(P, V, M4_xyzo(x, y, z, o));
                 }
 
                 { // dragonBody
@@ -702,7 +710,7 @@ void kaa() {
                         mat4 invBind = M4_Translation(-boneOriginsRest[bone_i]);
                         mat4 Bone = M4_xyzo(x, y, z, boneOrigins[bone_i]);
                         dragonBody.bones[bone_i] = Bone * invBind;
-                        library.soups.axes.draw(PV * Bone * M4_Scaling(0.08));
+                        // library.soups.axes.draw(PV * Bone * M4_Scaling(0.08));
                     }
                     dragonBody.draw(P, V, globals.Identity);
                 }
