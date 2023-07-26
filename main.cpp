@@ -1,3 +1,5 @@
+// NOTE: cpp now starts/resets with no targets enabled
+
 // TODO: GPU picking
 // TODO: make line and spheres show up through the transparent mesh as well
 // TODO: see if you can run cow while running an app in VR
@@ -163,7 +165,7 @@ bool initialized;
 // the caller is responsible for resetting targetPositions and targetEnabled
 delegate void cpp_reset() {
     memset(featurePoints, 0, sizeof(featurePoints));
-    featurePoints[0] = { { sim.num_nodes - 1, 1.0 } };
+    // featurePoints[0] = { { sim.num_nodes - 1, 1.0 } };
     currentState.x = sim.x_rest;
     currentState.u.setZero();
 }
@@ -524,8 +526,8 @@ int  SPOOF_targetEnabled[MAX_NUM_FEATURE_POINTS];
 void SPOOF_reset() {
     memset(SPOOF_targetPositions, 0, sizeof(SPOOF_targetPositions));
     memset(SPOOF_targetEnabled, 0, sizeof(SPOOF_targetEnabled));
-    SPOOF_targetPositions[0] = get(sim.x_rest, featurePoints[0]) + .3 * V3(0, 1, 1);
-    SPOOF_targetEnabled[0] = TRUE;
+    // SPOOF_targetPositions[0] = get(sim.x_rest, featurePoints[0]) + .3 * V3(0, 1, 1);
+    // SPOOF_targetEnabled[0] = TRUE;
 }
 
 
