@@ -3,7 +3,7 @@
 struct Hessian {
 
         Eigen::SparseMatrix<real> eigenSparseMatrix;
-        Eigen::SimplicialLDLT<Eigen::SparseMatrix<real>, Eigen::Upper> solver;
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<real>, Eigen::Lower> solver;
 
         void init_or_clear(int = 0, int = 0) {
             FORNOW_NUM_SLOTS = 100000;
