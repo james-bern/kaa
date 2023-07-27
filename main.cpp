@@ -554,6 +554,9 @@ delegate void cpp_solve(
                     SDVector dQdu; {
                         SDVector dQdx(LEN_X); {
                             if (DRAGON) {
+
+
+
                                 SDVector dQds(LEN_S); {
                                     for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
                                         vec3 p = skinnedGet(&dragonBody, bones, featurePoints[i]);
@@ -562,6 +565,10 @@ delegate void cpp_solve(
                                 }
                                 // TODO: Eigen::SparseMatrix dsdx (try a sparse finite difference)
                                 // TODO: do the multiple with a Eigen::Map
+
+
+
+
                             } else {
                                 for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
                                     add(dQdx, featurePoints[i], Q_c * (get(x, featurePoints[i]) - targetPositions[i]));
