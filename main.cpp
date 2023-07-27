@@ -179,6 +179,7 @@ typedef int      UnityGeneralPurposeInt;
 
 #define LEN_U sim.num_cables
 #define LEN_X (SOFT_ROBOT_DIM * sim.num_nodes)
+#define LEN_S (3 * dragonBody.num_vertices)
 
 delegate UnityGeneralPurposeInt cpp_getNumVertices() { return sim.num_nodes; }
 delegate UnityGeneralPurposeInt cpp_getNumTriangles() { return sim.num_triangles; }
@@ -552,12 +553,18 @@ delegate void cpp_solve(
                 } else {
                     SDVector dQdu; {
                         SDVector dQdx(LEN_X); {
-                            for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
-                                if (DRAGON) {
-                                    // TODO
-                                    bones;
-                                } else {
-                                    add(dQdx, featurePoints[i], Q_c * get(x, featurePoints[i]) - targetPositions[i]);
+                            if (DRAGON) {
+                                SDVector dQds(LEN_S); {
+                                    for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
+                                        vec3 p = skinnedGet(&dragonBody, bones, featurePoints[i]);
+                                        add(dQds, featurePoints[i], Q_c * (p - targetPositions[i]));
+                                    }
+                                }
+                                // TODO: Eigen::SparseMatrix dsdx (try a sparse finite difference)
+                                // TODO: do the multiple with a Eigen::Map
+                            } else {
+                                for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
+                                    add(dQdx, featurePoints[i], Q_c * (get(x, featurePoints[i]) - targetPositions[i]));
                                 }
                             }
                         }

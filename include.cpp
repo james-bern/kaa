@@ -6,7 +6,7 @@
 #include "Eigen/SparseCholesky"
 #pragma warning (pop) 
 #define SOFT_ROBOT_DIM 3
-typedef double real;
+#define real double
 #define GL_REAL GL_DOUBLE
 #define EigenVectorXr Eigen::VectorXd
 #define JIM_IS_JIM
