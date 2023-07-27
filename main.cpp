@@ -450,6 +450,15 @@ vec3 skinnedGet(IndexedTriangleMesh3D *mesh, const Bones &bones, Via via) {
     return result;
 }
 
+vec3 skinnedGet(IndexedTriangleMesh3D *mesh, const Bones &bones, int i) {
+    vec3 result;
+    mat4 *tmp = mesh->bones; {
+        mesh->bones = bones.data;
+        result = mesh->_skin(i); 
+    } mesh->bones = tmp;
+    return result;
+}
+
 
 // solves one step of IK (and physics; and bones)
 // writes resulting mesh to vertex_positions__FLOAT3_ARRAY, vertex_normals__FLOAT3_ARRAY, triangle_indices__UINT_ARRAY
@@ -473,6 +482,8 @@ delegate void cpp_solve(
         relax = true;
         for_(i, MAX_NUM_FEATURE_POINTS) relax &= (!targetEnabled[i]);
     }
+
+    IndexedTriangleMesh3D *mesh = &dragonBody;
 
     { // step ik
         static real Q_c      = 1.0;
@@ -503,7 +514,7 @@ delegate void cpp_solve(
             } else {
                 real Q = 0.0; {
                     for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
-                        vec3 p = (DRAGON) ? skinnedGet(&dragonBody, bones, featurePoints[i]) : get(x, featurePoints[i]);
+                        vec3 p = (DRAGON) ? skinnedGet(mesh, bones, featurePoints[i]) : get(x, featurePoints[i]);
                         Q += Q_c * .5 * squaredNorm(p - targetPositions[i]);
                     }
                 }
@@ -533,7 +544,7 @@ delegate void cpp_solve(
         { // single gradient descent step with backtracking line search
             SDVector dOdu(LEN_U);
             SDVector &u = currentState.u;
-            const SDVector &x = currentState.x;
+            SDVector x = currentState.x; // FORNOW NOT CONST
             Bones &bones = currentBones;
             {
                 if (project) { // project
@@ -554,20 +565,59 @@ delegate void cpp_solve(
                     SDVector dQdu; {
                         SDVector dQdx(LEN_X); {
                             if (DRAGON) {
-
-
-
                                 SDVector dQds(LEN_S); {
                                     for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
-                                        vec3 p = skinnedGet(&dragonBody, bones, featurePoints[i]);
+                                        vec3 p = skinnedGet(mesh, bones, featurePoints[i]);
                                         add(dQds, featurePoints[i], Q_c * (p - targetPositions[i]));
                                     }
                                 }
-                                // TODO: Eigen::SparseMatrix dsdx (try a sparse finite difference)
-                                // TODO: do the multiple with a Eigen::Map
 
+                                Eigen::SparseMatrix<real> SPARSE_dsdx(LEN_S, LEN_X); {
+                                    real delta = 1e-3;
+                                    StretchyBuffer<OptEntry> triplets = {}; {
+                                        StretchyBuffer<int> S_node_indices = {};
+                                        StretchyBuffer<int> X_node_indices = {};
+                                        {
+                                            { // S
+                                                for_(featurePoint_i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[featurePoint_i]) {
+                                                    for_(d, 3) sbuff_push_back(&S_node_indices, featurePoints[featurePoint_i][d].index);
+                                                }
+                                            }
+                                            { // X FORNOW SO HACKY
+                                                for_(bone_i, DRAGON_NUM_BONES + 1) {
+                                                    sbuff_push_back(&X_node_indices, 9 + bone_i * 10);
+                                                    sbuff_push_back(&X_node_indices, 0 + bone_i * 10);
+                                                }
+                                            }
+                                        }
+                                        Bones bonesRight;
+                                        Bones bonesLeft;
+                                        for_(_jj, X_node_indices.length) { int j = X_node_indices[_jj];
+                                            for_(d_j, 3) {
+                                                real tmp = x[3 * j + d_j]; {
+                                                    x[3 * j + d_j] = tmp + delta;
+                                                    bonesRight = getBones(x); 
+                                                    x[3 * j + d_j] = tmp - delta;
+                                                    bonesLeft = getBones(x); 
 
+                                                    for_(_ii, S_node_indices.length) { int i = S_node_indices[_ii];
+                                                        vec3 s_i_Right = skinnedGet(mesh, bonesRight, i); 
+                                                        vec3 s_i_Left = skinnedGet(mesh, bonesLeft, i); 
+                                                        vec3 s_i_prime = (s_i_Right - s_i_Left) / (2 * delta);
+                                                        for_(d_i, 3) {
+                                                            sbuff_push_back(&triplets, { 3 * i + d_i, 3 * j + d_j, s_i_prime[d_i] });
+                                                        }
+                                                    }
+                                                } x[3 * j + d_j] = tmp;
+                                            }
+                                        }
+                                    }
+                                    SPARSE_dsdx.setFromTriplets(triplets.data, triplets.data + triplets.length);
+                                }
 
+                                Eigen::Map<EigenVectorXr> MAP_dQds(dQds.data, LEN_S);
+                                EigenVectorXr EIGEN_dQdx = MAP_dQds.transpose() * SPARSE_dsdx;
+                                memcpy(dQdx.data, EIGEN_dQdx.data(), LEN_X * sizeof(real));
 
                             } else {
                                 for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
@@ -625,7 +675,7 @@ delegate void cpp_solve(
         for_(k, 3 * sim.num_triangles) ((UnityTriangleIndexInt *) triangle_indices__UINT_ARRAY)[k] = (UnityTriangleIndexInt) ((int *) sim.triangle_indices)[k];
         for_(indexOfFeaturePointToSet, num_feature_points) {
             vec3 tmp = (DRAGON)
-                ? skinnedGet(&dragonBody, currentBones, featurePoints[indexOfFeaturePointToSet])
+                ? skinnedGet(mesh, currentBones, featurePoints[indexOfFeaturePointToSet])
                 : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
         }
@@ -719,8 +769,8 @@ void kaa() {
 
         { // draw scene
             static int tabs = 0;
-            if (globals.key_pressed[COW_KEY_TAB]) ++tabs;
-            gui_checkbox("DRAGON", &DRAGON, 'd');
+            if (globals.key_pressed['1']) ++tabs;
+            gui_checkbox("DRAGON", &DRAGON, COW_KEY_TAB);
             if (!DRAGON) {
                 {
                     if (tabs % 3 == 0) {
