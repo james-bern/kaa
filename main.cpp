@@ -573,7 +573,7 @@ delegate void cpp_solve(
                                 }
 
                                 Eigen::SparseMatrix<real> SPARSE_dsdx(LEN_S, LEN_X); {
-                                    real delta = 1e-3;
+                                    real delta = 1e-5;
                                     StretchyBuffer<OptEntry> triplets = {}; {
                                         StretchyBuffer<int> S_node_indices = {};
                                         StretchyBuffer<int> X_node_indices = {};

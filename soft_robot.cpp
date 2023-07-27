@@ -380,6 +380,19 @@ struct Sim {
         return Delta;
     }
 
+    SDVector computeCableTensions(const SDVector &x, const SDVector &u) {
+        // NOTE: Trash
+        SDVector lengths = getCableLengths(x);
+        SDVector cableDeltas = computeCableDeltas(x, u);
+        SDVector tensions(LEN_U); {
+            for_(cable_i, num_cables) {
+                real energy = ZCQ(cableSpringConstant, cableDeltas[cable_i]);
+                tensions[cable_i] = energy / lengths[cable_i];
+            }
+        }
+        return tensions;
+    }
+
     FixedSizeSelfDestructingArray<Mat> getSimplexEdgeVectorMatrices(const SDVector &x) {
         FixedSizeSelfDestructingArray<Mat> result(num_tets);
         for_(tet_i, num_tets) {
@@ -558,7 +571,6 @@ struct Sim {
 
         // TODO parallelize cables
         if (state->enabled__BIT_FIELD & CABLES) {
-
             // TODOLATER move inside
             SDVector cableDeltas = computeCableDeltas(x, u);
 
@@ -709,6 +721,7 @@ struct Sim {
 
     void draw(mat4 P, mat4 V, mat4 M, State *state) {
         const SDVector &x = state->x;
+        const SDVector &u = state->u;
         mat4 PV = P * V;
 
         if (1) {
@@ -719,7 +732,8 @@ struct Sim {
                 if (!vertex_colors) {
                     vertex_colors = (vec3 *) malloc(num_nodes * sizeof(vec3));
                     for_(node_i, num_nodes) {
-                        vertex_colors[node_i] = color_rainbow_swirl(-1.3 * x_rest[3 * node_i + 1]);
+                        // vertex_colors[node_i] = color_rainbow_swirl(-1.3 * x_rest[3 * node_i + 1]);
+                        vertex_colors[node_i] = monokai.gray;
                     }
                 }
 
@@ -739,7 +753,6 @@ struct Sim {
 
         if (1) {
             if (state->enabled__BIT_FIELD & CABLES) {
-
                 // static vec3 *vertex_colors;
                 // if (!vertex_colors) {
                 //     vertex_colors = (vec3 *) malloc(library.meshes.bunny.num_vertices * sizeof(vec3));
@@ -752,9 +765,12 @@ struct Sim {
 
                 // library.meshes.bunny.draw(P, V, M4_Scaling(0.2), monokai.yellow);
 
+                SDVector tensions = computeCableTensions(x, u);
+
                 for_(cable_i, num_cables) {
                     Via *cable = cables[cable_i];
-                    vec3 color = color_kelly(cable_i);
+                    // vec3 color = color_kelly(cable_i);
+                    vec3 color = color_plasma(16.0 * tensions[cable_i]);
                     real r = 0.004;
                     for_(via_i, num_vias[cable_i]) library.meshes.sphere.draw(P, V, M4_Translation(get(x, cable[via_i])) * M4_Scaling(r), color);
                     for_line_strip_(via_i, via_j, num_vias[cable_i]) {
