@@ -27,7 +27,8 @@
 // port MIN, MAX, etc. to be functions
 
 #include "include.cpp"
-bool DRAGON = true;
+bool DRAGON_SHOW = true;
+bool DRAGON_DRIVING = true;
 
 void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
 void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
@@ -415,22 +416,24 @@ delegate bool cpp_castRay(
     vec3 ray_origin = { ray_origin_x, ray_origin_y, ray_origin_z };
     vec3 ray_direction = { ray_direction_x, ray_direction_y, ray_direction_z };
     IntersectionResult result; {
-        if (DRAGON) {
+        if (DRAGON_DRIVING) {
             result = GPU_pick(ray_origin, ray_direction, &dragonBody);
         } else {
             result = ray_mesh_intersection(ray_origin, ray_direction, currentState.x, sim.num_triangles, sim.triangle_indices);
         }
     }
-    if (result.hit) for_(d, 3) (((float *) intersection_position__FLOAT_ARRAY__LENGTH_3)[d]) = float(result.p[d]);
-    if (pleaseSetFeaturePoint) {
-        ASSERT(indexOfFeaturePointToSet >= 0);
-        ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
-        featurePoints[indexOfFeaturePointToSet] = { { { result.tri[0], result.w[0] }, { result.tri[1], result.w[1] }, { result.tri[2], result.w[2] } } };
-        if (feature_point_positions__FLOAT3__ARRAY) {
-            // // FORNOW simpler method right after a cast (just use p)
-            // vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[indexOfFeaturePointToSet]) : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
-            // for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
-            for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(result.p[d]);
+    if (result.hit) {
+        for_(d, 3) (((float *) intersection_position__FLOAT_ARRAY__LENGTH_3)[d]) = float(result.p[d]);
+        if (pleaseSetFeaturePoint) {
+            ASSERT(indexOfFeaturePointToSet >= 0);
+            ASSERT(indexOfFeaturePointToSet < MAX_NUM_FEATURE_POINTS);
+            featurePoints[indexOfFeaturePointToSet] = { { { result.tri[0], result.w[0] }, { result.tri[1], result.w[1] }, { result.tri[2], result.w[2] } } };
+            if (feature_point_positions__FLOAT3__ARRAY) {
+                // // FORNOW simpler method right after a cast (just use p)
+                // vec3 tmp = (DRAGON) ? get(dragonBody.vertex_positions, featurePoints[indexOfFeaturePointToSet]) : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
+                // for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
+                for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(result.p[d]);
+            }
         }
     }
 
@@ -514,7 +517,7 @@ delegate void cpp_solve(
             } else {
                 real Q = 0.0; {
                     for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
-                        vec3 p = (DRAGON) ? skinnedGet(mesh, bones, featurePoints[i]) : get(x, featurePoints[i]);
+                        vec3 p = (DRAGON_DRIVING) ? skinnedGet(mesh, bones, featurePoints[i]) : get(x, featurePoints[i]);
                         Q += Q_c * .5 * squaredNorm(p - targetPositions[i]);
                     }
                 }
@@ -564,7 +567,7 @@ delegate void cpp_solve(
                 } else {
                     SDVector dQdu; {
                         SDVector dQdx(LEN_X); {
-                            if (DRAGON) {
+                            if (DRAGON_DRIVING) {
                                 SDVector dQds(LEN_S); {
                                     for_(i, MAX_NUM_FEATURE_POINTS) if (targetEnabled[i]) {
                                         vec3 p = skinnedGet(mesh, bones, featurePoints[i]);
@@ -674,7 +677,7 @@ delegate void cpp_solve(
         }
         for_(k, 3 * sim.num_triangles) ((UnityTriangleIndexInt *) triangle_indices__UINT_ARRAY)[k] = (UnityTriangleIndexInt) ((int *) sim.triangle_indices)[k];
         for_(indexOfFeaturePointToSet, num_feature_points) {
-            vec3 tmp = (DRAGON)
+            vec3 tmp = (DRAGON_DRIVING)
                 ? skinnedGet(mesh, currentBones, featurePoints[indexOfFeaturePointToSet])
                 : get(currentState.x, featurePoints[indexOfFeaturePointToSet]);
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
@@ -721,7 +724,7 @@ void kaa() {
             CastRayResult result = {};
             vec3 ray_origin = camera_get_position(&camera);
             vec3 ray_direction = camera_get_mouse_ray(&camera);
-            float intersection_position__FLOAT_ARRAY__LENGTH_3[3]; {
+            float intersection_position__FLOAT_ARRAY__LENGTH_3[3] = {}; {
                 result.intersects = cpp_castRay(
                         (float) ray_origin.x,
                         (float) ray_origin.y,
@@ -733,8 +736,10 @@ void kaa() {
                         pleaseSetFeaturePoint,
                         featurePointIndex,
                         SPOOF_feature_point_positions);
+                if (result.intersects) {
+                    for_(d, 3) result.intersection_position[d] = intersection_position__FLOAT_ARRAY__LENGTH_3[d];
+                }
             }
-            for_(d, 3) result.intersection_position[d] = intersection_position__FLOAT_ARRAY__LENGTH_3[d];
             return result;
         };
 
@@ -770,8 +775,8 @@ void kaa() {
         { // draw scene
             static int tabs = 0;
             if (globals.key_pressed['1']) ++tabs;
-            gui_checkbox("DRAGON", &DRAGON, COW_KEY_TAB);
-            if (!DRAGON) {
+            gui_checkbox("DRAGON_SHOW", &DRAGON_SHOW, COW_KEY_TAB);
+            if (!DRAGON_SHOW) {
                 {
                     if (tabs % 3 == 0) {
                         sim.draw(P, V, M4_Identity(), &currentState);
@@ -793,8 +798,6 @@ void kaa() {
                     }
                 }
             } else { // skinning
-
-
                 dragonBody.bones = currentBones.data;
                 dragonBody.draw(P, V, globals.Identity);
 
