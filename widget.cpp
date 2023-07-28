@@ -49,21 +49,20 @@ WidgetResult widget(mat4 P, mat4 V, int i, vec3 *targetPosition, vec3 featurePoi
     }
 
     { // draw (incorporating infor about hots)
-
-        draw_ball(P, V, *targetPosition, widgetColor);
-        draw_ball(P, V, featurePointPosition, widgetColor, ((state == DraggingFeaturePoint) && (selected_i == i)) ? 0.8 : (featurePointPositionIsHot ? 1.2 : 1.0));
-        if (!targetPositionIsHot) { // translate widget handles
-            draw_pipe(P, V, *targetPosition, featurePointPosition, widgetColor, 0.7);
+        vec3 widgetColor2 = (targetPositionIsHot) ? 0.7 * widgetColor : widgetColor;
+        draw_ball(P, V, *targetPosition, widgetColor2, (targetPositionIsHot) ? 0.5 : 1.0);
+        draw_ball(P, V, featurePointPosition, widgetColor2,
+                targetPositionIsHot ? 0.6 : (((state == DraggingFeaturePoint) && (selected_i == i)) ? 0.8 : (featurePointPositionIsHot ? 1.2 : 1.0)));
+        { // translate widget handles
+            draw_pipe(P, V, *targetPosition, featurePointPosition, widgetColor2, (targetPositionIsHot) ? 0.6 : 0.7);
             for_(d, 3) {
                 bool selected = (selected_i == i) && (selected_handle == d);
                 bool hot = (hot_handle == d);
-                real scale = selected ? 0.6 : hot ? 1.0 : 0.8;
-                vec3 color = selected ? AVG(monokai.white, AVG(monokai.white, widgetColor)) : hot ? AVG(monokai.white, widgetColor) : widgetColor;
+                real scale = (targetPositionIsHot) ? 0.6 : (selected ? 0.6 : hot ? 1.0 : 0.8);
+                vec3 color = selected ? AVG(monokai.white, AVG(monokai.white, widgetColor2)) : hot ? AVG(monokai.white, widgetColor2) : widgetColor2;
                 draw_pipe(P, V, handle_positions[d], *targetPosition, color, scale);
                 draw_ball(P, V, handle_positions[d], color, scale);
             }
-        } else {
-            draw_pipe(P, V, *targetPosition, featurePointPosition, AVG(monokai.black, widgetColor), 0.4);
         }
     }
 
