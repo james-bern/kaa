@@ -63,10 +63,14 @@ IntersectionResult GPU_pick(vec3 ray_origin, vec3 ray_direction, IndexedTriangle
                 vec3 color = w;
                 if (!IndexIfFalse_BarycentricWeightsIfTrue) {
                     int i = gl_PrimitiveID;
-                    for (int d = 0; d < 3; ++d) {
-                        color[d] = (i % 256) / 255.0;
-                        i /= 256;
-                    }
+                    // for (int d = 0; d < 3; ++d) {
+                    //     color[d] = (i % 256) / 255.0;
+                    //     i /= 256;
+                    // }
+                    color[0] = (i % 256);
+                    color[1] = ((i / 256) % 256);
+                    color[2] = ((i / (256 * 256)) % 256);
+                    color /= 255.0;
                 }
                 fragColor = vec4(color, 1.0);
             }
