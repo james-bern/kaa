@@ -16,6 +16,15 @@ u32 _fbo_create(Texture texture) {
     }
     return fbo;
 }
+
+mat4 get_ray_C(vec3 ray_origin, vec3 ray_direction) {
+    vec3 z = -ray_direction;
+    vec3 Up = { 0.0, 1.0, 0.0 };
+    vec3 x = cross(Up, z);
+    vec3 y = cross(z, x);
+    return M4_xyzo(x, y, z, ray_origin);
+}
+
 IntersectionResult GPU_pick(vec3 ray_origin, vec3 ray_direction, IndexedTriangleMesh3D *mesh) {
     int num_vertices       = mesh->num_vertices;
     vec3 *vertex_positions = mesh->vertex_positions;
@@ -77,16 +86,8 @@ IntersectionResult GPU_pick(vec3 ray_origin, vec3 ray_direction, IndexedTriangle
         )"";
     static Shader shader = shader_create(picking_vertex_shader_source, picking_fragment_shader_source);
 
-    mat4 ray_V; {
-        vec3 z = -ray_direction;
-        vec3 Up = { 0.0, 1.0, 0.0 };
-        vec3 y = cross(z, Up);
-        vec3 x = cross(y, z);
-        mat4 ray_C = M4_xyzo(x, y, z, ray_origin);
-        // library.soups.axes.draw(PV * ray_C);
-        ray_V = inverse(ray_C);
-    }
-    mat4 ray_PV = _window_get_P_perspective(RAD(3)) * ray_V;
+    mat4 ray_V = inverse(get_ray_C(ray_origin, ray_direction));
+    mat4 ray_PV = _window_get_P_perspective(RAD(1)) * ray_V;
 
     IntersectionResult result = {};
     {
@@ -172,16 +173,20 @@ void eg_fbo() {
 
     Camera3D camera = { 6.0 };
     real time = 0.0;
+    window_set_clear_color(0.9, 1.0, 1.0);
     while (cow_begin_frame()) {
         camera_move(&camera);
         mat4 P = camera_get_P(&camera);
         mat4 V = camera_get_V(&camera);
         mat4 PV = P * V;
-        time += 0.0167;
+        static bool paused;
+        gui_checkbox("paused", &paused, 'p');
+        if (!paused) time += 0.0167;
+        gui_readout("time", &time);
 
         mesh.bones[0] = M4_RotationAboutXAxis(sin(0.1 * time));
 
-        vec3 ray_origin = { -2.0, 0.0, 0.0 };
+        vec3 ray_origin = { -1.3, 0.0, 0.0 };
         vec3 ray_direction; {
             static real a = 0.1;
             static real b = 0.0;
@@ -192,9 +197,17 @@ void eg_fbo() {
 
         IntersectionResult result = GPU_pick(ray_origin, ray_direction, &mesh);
 
-        mesh.draw(P, V, globals.Identity);
-        draw_pipe(P, V, ray_origin, ray_origin + 2.0 * ray_direction, monokai.yellow, 0.5);
-        if (result.hit) draw_ball(P, V, result.p);
+        { // draw
+            mesh.draw(P, V, globals.Identity);
+            draw_pipe(P, V, ray_origin, result.p, monokai.blue, 1.0);
+            if (result.hit) draw_ball(P, V, result.p, monokai.yellow, 2.0);
+
+            { // draw camera box
+                mat4 ray_C = get_ray_C(ray_origin, ray_direction);
+                library.soups.box.draw(P * V * ray_C * M4_Scaling(0.1), monokai.gray);
+                library.soups.axes.draw(P * V * ray_C * M4_Scaling(0.3));
+            }
+        }
     }
 }
 
