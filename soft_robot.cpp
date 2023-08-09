@@ -317,7 +317,7 @@ struct Sim {
                     }
                 };
 
-                PUSH_TRIANGLE(1);
+                PUSH_TRIANGLE(0);
 
                 StretchyBuffer<int2> positivelyOrientedEdgeQueue = {};
 
@@ -724,64 +724,60 @@ struct Sim {
         const SDVector &u = state->u;
         mat4 PV = P * V;
 
-        if (1) {
-            if (state->enabled__BIT_FIELD & TETS) {
-                SDVector vertex_normals = get_vertex_normals(x);
+        if (state->enabled__BIT_FIELD & TETS) {
+            SDVector vertex_normals = get_vertex_normals(x);
 
-                static vec3 *vertex_colors;
-                if (!vertex_colors) {
-                    vertex_colors = (vec3 *) malloc(num_nodes * sizeof(vec3));
-                    for_(node_i, num_nodes) {
-                        // vertex_colors[node_i] = color_rainbow_swirl(-1.3 * x_rest[3 * node_i + 1]);
-                        vertex_colors[node_i] = monokai.gray;
-                    }
+            static vec3 *vertex_colors;
+            if (!vertex_colors) {
+                vertex_colors = (vec3 *) malloc(num_nodes * sizeof(vec3));
+                for_(node_i, num_nodes) {
+                    // vertex_colors[node_i] = color_rainbow_swirl(-1.3 * x_rest[3 * node_i + 1]);
+                    vertex_colors[node_i] = monokai.gray;
                 }
-
-                IndexedTriangleMesh3D mesh = {}; {
-                    mesh.num_vertices = num_nodes;
-                    mesh.num_triangles = num_triangles;
-                    mesh.vertex_positions = (vec3 *) x.data;
-                    mesh.vertex_normals = (vec3 *) vertex_normals.data;
-                    mesh.vertex_colors = vertex_colors;
-                    mesh.triangle_indices = triangle_indices;
-                }
-
-                mesh.draw(P, V, M);
-                // mesh._dump_for_library("snake.txt", "snake"); exit(1);
             }
+
+            IndexedTriangleMesh3D mesh = {}; {
+                mesh.num_vertices = num_nodes;
+                mesh.num_triangles = num_triangles;
+                mesh.vertex_positions = (vec3 *) x.data;
+                mesh.vertex_normals = (vec3 *) vertex_normals.data;
+                mesh.vertex_colors = vertex_colors;
+                mesh.triangle_indices = triangle_indices;
+            }
+
+            mesh.draw(P, V, M);
+            // mesh._dump_for_library("snake.txt", "snake"); exit(1);
         }
 
-        if (1) {
-            if (state->enabled__BIT_FIELD & CABLES) {
-                // static vec3 *vertex_colors;
-                // if (!vertex_colors) {
-                //     vertex_colors = (vec3 *) malloc(library.meshes.bunny.num_vertices * sizeof(vec3));
-                //     for_(node_i, library.meshes.bunny.num_vertices) {
-                //         vertex_colors[node_i] = color_rainbow_swirl(-1.3 * library.meshes.bunny.vertex_positions[node_i].y);
-                //     }
-                //     library.meshes.bunny.vertex_colors = vertex_colors;
-                // }
-                // for_(i, 256) library.meshes.bunny.draw(P, V, M4_Scaling(0.25));
+        if (state->enabled__BIT_FIELD & CABLES) {
+            // static vec3 *vertex_colors;
+            // if (!vertex_colors) {
+            //     vertex_colors = (vec3 *) malloc(library.meshes.bunny.num_vertices * sizeof(vec3));
+            //     for_(node_i, library.meshes.bunny.num_vertices) {
+            //         vertex_colors[node_i] = color_rainbow_swirl(-1.3 * library.meshes.bunny.vertex_positions[node_i].y);
+            //     }
+            //     library.meshes.bunny.vertex_colors = vertex_colors;
+            // }
+            // for_(i, 256) library.meshes.bunny.draw(P, V, M4_Scaling(0.25));
 
-                // library.meshes.bunny.draw(P, V, M4_Scaling(0.2), monokai.yellow);
+            // library.meshes.bunny.draw(P, V, M4_Scaling(0.2), monokai.yellow);
 
-                SDVector tensions = computeCableTensions(x, u);
+            SDVector tensions = computeCableTensions(x, u);
 
-                for_(cable_i, num_cables) {
-                    Via *cable = cables[cable_i];
-                    // vec3 color = color_kelly(cable_i);
-                    vec3 color = color_plasma(16.0 * tensions[cable_i]);
-                    real r = 0.004;
-                    for_(via_i, num_vias[cable_i]) library.meshes.sphere.draw(P, V, M4_Translation(get(x, cable[via_i])) * M4_Scaling(r), color);
-                    for_line_strip_(via_i, via_j, num_vias[cable_i]) {
-                        vec3 x_i = get(x, cable[via_i]);
-                        vec3 x_j = get(x, cable[via_j]);
-                        vec3 e = x_j - x_i;
-                        real mag_e = norm(e);
-                        vec3 E = { 0.0, 1.0, 0.0 };
-                        mat4 R = M4_RotationFrom(E, e);
-                        library.meshes.cylinder.draw(P, V, M4_Translation(0.5 * (x_i + x_j)) * R * M4_Scaling(r, mag_e, r) * M4_Translation(0.0, -0.5, 0.0), color);
-                    }
+            for_(cable_i, num_cables) {
+                Via *cable = cables[cable_i];
+                vec3 color = color_kelly(cable_i);
+                // vec3 color = color_plasma(16.0 * tensions[cable_i]);
+                real r = 0.004;
+                for_(via_i, num_vias[cable_i]) library.meshes.sphere.draw(P, V, M4_Translation(get(x, cable[via_i])) * M4_Scaling(r), color);
+                for_line_strip_(via_i, via_j, num_vias[cable_i]) {
+                    vec3 x_i = get(x, cable[via_i]);
+                    vec3 x_j = get(x, cable[via_j]);
+                    vec3 e = x_j - x_i;
+                    real mag_e = norm(e);
+                    vec3 E = { 0.0, 1.0, 0.0 };
+                    mat4 R = M4_RotationFrom(E, e);
+                    library.meshes.cylinder.draw(P, V, M4_Translation(0.5 * (x_i + x_j)) * R * M4_Scaling(r, mag_e, r) * M4_Translation(0.0, -0.5, 0.0), color);
                 }
             }
         }

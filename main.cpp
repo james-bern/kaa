@@ -27,8 +27,8 @@
 // port MIN, MAX, etc. to be functions
 
 #include "include.cpp"
-bool DRAGON_SHOW = true;
-bool DRAGON_DRIVING = true;
+bool DRAGON_SHOW = false;
+bool DRAGON_DRIVING = false;
 
 void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
 void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
@@ -209,13 +209,16 @@ delegate void cpp_init() {
         // 5       0
         //    ...   
 
+        real FRANCESCO_CLOCK = RAD(30);
 
         StretchyBuffer<vec3> X = {}; {
             real length = 0.0;
             for_(i, MESH_NUMBER_OF_NODE_LAYERS) {
+                real angle = FRANCESCO_CLOCK;
                 for_(a, MESH_NUMBER_OF_ANGULAR_SECTIONS) {
-                    real angle = NUM_DEN(a, MESH_NUMBER_OF_ANGULAR_SECTIONS) * TAU;
-                    sbuff_push_back(&X, V3(ROBOT_SEGMENT_RADIUS * cos(angle), -length, ROBOT_SEGMENT_RADIUS * sin(angle)));
+                    // real angularWidth = RAD(((a % 3) == 2) ? 60 : 30);
+                    sbuff_push_back(&X, V3(ROBOT_SEGMENT_RADIUS * cos(angle), -length, -ROBOT_SEGMENT_RADIUS * sin(angle)));
+                    angle += RAD(((a % 3) == 2) ? 60 : 30);
                 }
                 sbuff_push_back(&X, V3(0.0, -length, 0.0));
                 if (i == MESH_NUMBER_OF_NODE_LAYERS - 1) ASSERT(ARE_EQUAL(length, ROBOT_LENGTH));
