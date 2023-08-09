@@ -27,8 +27,6 @@
 // port MIN, MAX, etc. to be functions
 
 #include "include.cpp"
-bool DRAGON_SHOW = false;
-bool DRAGON_DRIVING = false;
 
 void draw_ball(mat4 P, mat4 V, vec3 s, vec3 color = monokai.white, real scale = 1.0) { library.meshes.sphere.draw(P, V, M4_Translation(s) * M4_Scaling(scale * 0.01), color); };
 void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real scale = 1.0) {
@@ -45,6 +43,8 @@ void draw_pipe(mat4 P, mat4 V, vec3 s, vec3 t, vec3 color = monokai.white, real 
 
 #include "widget.cpp"
 
+bool DRAGON_SHOW = false;
+bool DRAGON_DRIVING = false;
 struct IntersectionResult {
     bool hit;
     vec3 p;
@@ -90,8 +90,6 @@ IntersectionResult ray_mesh_intersection(vec3 ray_origin, vec3 ray_direction, co
     }
     return result;
 }
-
-
 #include "fbo.cpp"
 
 
@@ -118,9 +116,8 @@ const int  _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EXCLUSIVE = ROBOT_NUMBER_OF_UPPER_S
 const int  _MESH_NUMBER_OF_LOWER_NODE_LAYERS_EXCLUSIVE = ROBOT_NUMBER_OF_LOWER_SEGMENTS * MESH_NUMBER_OF_VOLUMETRIC_STACKS_PER_LOWER_SEGMENT;
 const int  MESH_NUMBER_OF_NODE_LAYERS = 1 + _MESH_NUMBER_OF_UPPER_NODE_LAYERS_EXCLUSIVE + _MESH_NUMBER_OF_LOWER_NODE_LAYERS_EXCLUSIVE + (INCLUDE_DUMMY_SEGMENT ? 1 : 0);
 
-typedef FixedSizeSelfDestructingArray<mat4> Bones;
-
 IndexedTriangleMesh3D dragonBody;
+typedef FixedSizeSelfDestructingArray<mat4> Bones;
 const int DRAGON_NUM_BONES = MESH_NUMBER_OF_NODE_LAYERS - 1;
 vec3 boneOriginsRest[DRAGON_NUM_BONES + 1]; // ? okay FORNOW
 Bones getBones(SDVector &x) {
@@ -443,8 +440,6 @@ delegate bool cpp_castRay(
     return result.hit;
 }
 
-
-// FORNOW doesn't say which mesh
 vec3 skinnedGet(IndexedTriangleMesh3D *mesh, const Bones &bones, Via via) {
     vec3 result;
     mat4 *tmp = mesh->bones; {
@@ -686,7 +681,6 @@ delegate void cpp_solve(
             for_(d, 3) ((float *) feature_point_positions__FLOAT3__ARRAY)[3 * indexOfFeaturePointToSet + d] = float(tmp[d]);
         }
     }
-
 }
 
 vec3 SPOOF_targetPositions[MAX_NUM_FEATURE_POINTS];
